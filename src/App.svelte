@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { api } from './lib/api';
   import { filterTools, splitArguments } from './lib/tooling';
@@ -87,10 +87,14 @@
 
   async function initialize() {
     try {
+      query = '';
+      category = 'all';
       settings = await api.getSettings();
       sessions = await api.terminalSessions();
       activeSessionId = sessions.at(-1)?.id ?? '';
       await scan();
+      await tick();
+      toolListElement?.scrollTo({ top: 0 });
     } catch (cause) {
       showError(cause);
     }
