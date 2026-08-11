@@ -5,8 +5,11 @@ use serde::{Deserialize, Serialize};
 pub enum ToolCategory {
     AiAgent,
     Collaboration,
+    CloudService,
+    Observability,
+    #[serde(rename = "infrastructure", alias = "cloud-container")]
+    Infrastructure,
     Runtime,
-    CloudContainer,
     Android,
     DeveloperTool,
     System,

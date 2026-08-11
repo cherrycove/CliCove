@@ -16,15 +16,23 @@
   type View = 'tools' | 'terminals' | 'updates' | 'settings';
 
   const categoryNames: Record<ToolCategory, string> = {
-    'ai-agent': 'AI / Agent',
-    collaboration: '协作与项目',
+    'ai-agent': 'Agent 能力',
+    collaboration: '协作与业务服务',
+    'cloud-service': '云服务',
+    observability: '可观测与运维服务',
+    infrastructure: '基础设施工具（高级）',
     runtime: '语言与运行时',
-    'cloud-container': '云与容器',
     android: 'Android',
     'developer-tool': '开发工具',
     system: '系统工具',
     other: '其他工具',
   };
+  const capabilityCategories: ToolCategory[] = [
+    'ai-agent',
+    'cloud-service',
+    'collaboration',
+    'observability',
+  ];
 
   const defaultSettings: AppSettings = {
     showSystemTools: false,
@@ -52,6 +60,9 @@
 
   $: selected = tools.find((tool) => tool.id === selectedId);
   $: filtered = filterTools(tools, query, category);
+  $: categoryOptions = Object.entries(categoryNames).filter(
+    ([value]) => settings.showAllExecutables || capabilityCategories.includes(value as ToolCategory),
+  );
   $: updatable = tools.filter((tool, index, all) => {
     if (!tool.capabilities.update) return false;
     const key = tool.source.packageName
@@ -94,6 +105,9 @@
         settings.showSystemTools,
         settings.showAllExecutables,
       );
+      if (category !== 'all' && !tools.some((tool) => tool.category === category)) {
+        category = 'all';
+      }
       if (!tools.some((tool) => tool.id === selectedId)) {
         selectedId = tools[0]?.id ?? '';
       }
@@ -229,7 +243,7 @@
 
     <nav aria-label="主导航">
       <button class:active={view === 'tools'} on:click={() => (view = 'tools')}>
-        <span class="nav-icon">⌘</span><span>工具</span><em>{filtered.length}</em>
+        <span class="nav-icon">⌘</span><span>能力 CLI</span><em>{filtered.length}</em>
       </button>
       <button class:active={view === 'updates'} on:click={() => (view = 'updates')}>
         <span class="nav-icon">↟</span><span>更新</span><em>{updatable.length}</em>
@@ -251,8 +265,8 @@
   <main>
     <header class="topbar">
       <div>
-        <h1>{view === 'tools' ? '本地工具' : view === 'updates' ? '更新中心' : view === 'terminals' ? '终端' : '设置'}</h1>
-        <p>{view === 'tools' ? '发现、检查并运行当前登录环境中的 CLI' : view === 'updates' ? '所有更新都将在确认后使用官方机制执行' : view === 'terminals' ? '交互内容仅存在内存中' : 'CLIHub 本地行为与扫描范围'}</p>
+        <h1>{view === 'tools' ? 'Agent 能力 CLI' : view === 'updates' ? '更新中心' : view === 'terminals' ? '终端' : '设置'}</h1>
+        <p>{view === 'tools' ? '发现、配置并运行可供 Agent 调用的服务能力 CLI' : view === 'updates' ? '所有更新都将在确认后使用官方机制执行' : view === 'terminals' ? '交互内容仅存在内存中' : 'CLIHub 本地行为与扫描范围'}</p>
       </div>
       {#if view === 'tools' || view === 'updates'}
         <button class="scan-button" disabled={scanning} on:click={scan}>
@@ -263,10 +277,10 @@
 
     {#if view === 'tools'}
       <div class="toolbar">
-        <label class="search"><span>⌕</span><input bind:value={query} placeholder="搜索命令、别名或来源" /></label>
+        <label class="search"><span>⌕</span><input bind:value={query} placeholder="搜索能力、命令或服务来源" /></label>
         <select bind:value={category} aria-label="按分类过滤">
           <option value="all">全部分类</option>
-          {#each Object.entries(categoryNames) as [value, label]}
+          {#each categoryOptions as [value, label]}
             <option value={value}>{label}</option>
           {/each}
         </select>
@@ -281,7 +295,7 @@
           {#if scanning && tools.length === 0}
             <div class="loading-list">{#each Array(8) as _}<span></span>{/each}</div>
           {:else if filtered.length === 0}
-            <div class="empty"><b>未找到匹配工具</b><span>调整搜索条件或扫描范围</span></div>
+            <div class="empty"><b>未找到匹配的能力 CLI</b><span>调整搜索条件，或在设置中启用高级全量视图</span></div>
           {:else}
             {#each filtered as tool (tool.id)}
               <button class:selected={tool.id === selectedId} class="tool-row" on:click={() => { selectedId = tool.id; configPreview = null; }}>
@@ -347,7 +361,7 @@
       </div>
     {:else if view === 'updates'}
       <section class="page-card updates-page">
-        <div class="page-intro"><span>↟</span><div><h2>可管理更新</h2><p>CLIHub 不托管安装包，所有命令使用官方更新器或原包管理器。</p></div></div>
+        <div class="page-intro"><span>↟</span><div><h2>能力 CLI 更新</h2><p>CLIHub 不托管安装包，所有命令使用官方更新器或原包管理器。</p></div></div>
         {#each updatable as tool}
           <div class="update-row">
             <span class="tool-glyph category-{tool.category}">{tool.name.slice(0, 2).toUpperCase()}</span>
@@ -378,8 +392,8 @@
     {:else}
       <section class="page-card settings-page">
         <div class="setting-group"><div><h3>默认工作目录</h3><p>新终端和管理命令默认在此目录启动。</p></div><input bind:value={settings.defaultWorkingDirectory} /></div>
-        <div class="setting-group"><div><h3>显示系统工具</h3><p>在主清单中包含 macOS 或 Windows 自带命令。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.showSystemTools} /><span></span></label></div>
-        <div class="setting-group"><div><h3>显示全部可执行文件</h3><p>关闭时按 CLI 产品或安装包聚合；开启后显示 PATH 中每个可执行入口。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.showAllExecutables} /><span></span></label></div>
+        <div class="setting-group"><div><h3>高级模式包含系统命令</h3><p>仅在全量视图中包含 macOS 或 Windows 自带命令。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.showSystemTools} /><span></span></label></div>
+        <div class="setting-group"><div><h3>高级：显示全部本机命令</h3><p>默认仅显示 Agent 可调用的服务能力 CLI；开启后显示语言环境、开发工具、基础设施及 PATH 中的每个可执行入口。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.showAllExecutables} /><span></span></label></div>
         <div class="setting-group"><div><h3>驻留系统托盘</h3><p>默认关闭以减少后台内存占用；首版设置将在下次启动生效。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.trayEnabled} /><span></span></label></div>
         <div class="privacy-note"><span>◈</span><div><strong>本地与隐私</strong><p>CLIHub 不读取 CLI 登录凭据，不保存完整终端输出，也不会在后台自动联网检查更新。</p></div></div>
         <button class="primary save-settings" on:click={saveAppSettings}>保存设置</button>

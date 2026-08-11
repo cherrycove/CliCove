@@ -1,6 +1,6 @@
 [package]
 name = "clihub"
-version = "0.1.0"
+version = "0.2.0"
 description = "A lightweight local console for discovering and managing command-line tools"
 authors = ["CLIHub"]
 edition = "2021"

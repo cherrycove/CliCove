@@ -1,8 +1,10 @@
 export type ToolCategory =
   | 'ai-agent'
   | 'collaboration'
+  | 'cloud-service'
+  | 'observability'
+  | 'infrastructure'
   | 'runtime'
-  | 'cloud-container'
   | 'android'
   | 'developer-tool'
   | 'system'

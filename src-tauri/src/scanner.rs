@@ -76,6 +76,9 @@ impl ToolRegistry {
             raw_records
         } else {
             product_records(raw_records, &homebrew_requested)
+                .into_iter()
+                .filter(is_capability_cli)
+                .collect()
         };
 
         records.sort_by(|left, right| {
@@ -379,6 +382,16 @@ fn is_primary_command(tool: &ToolRecord) -> bool {
         .any(|alias| PRIMARY.contains(&alias.as_str()))
 }
 
+fn is_capability_cli(tool: &ToolRecord) -> bool {
+    matches!(
+        tool.category,
+        ToolCategory::AiAgent
+            | ToolCategory::Collaboration
+            | ToolCategory::CloudService
+            | ToolCategory::Observability
+    )
+}
+
 fn package_display_name(package: &str, fallback: &str) -> String {
     if package.starts_with("openjdk@") {
         return format!("OpenJDK {}", package.trim_start_matches("openjdk@"));
@@ -614,43 +627,72 @@ fn infer_category(names: &[String], is_system: bool) -> ToolCategory {
     if is_system {
         return ToolCategory::System;
     }
-    let joined = names.join(" ").to_lowercase();
-    if [
+    let normalized: Vec<String> = names.iter().map(|name| name.to_lowercase()).collect();
+    let has = |candidates: &[&str]| {
+        normalized
+            .iter()
+            .any(|name| candidates.contains(&name.as_str()))
+    };
+    if has(&[
+        "aws",
+        "aws-vault",
+        "cloudflared",
+        "wrangler",
+        "gcloud",
+        "az",
+        "aliyun",
+        "hcloud",
+        "vercel",
+        "netlify",
+        "firebase",
+        "flyctl",
+        "doctl",
+        "heroku",
+        "supabase",
+        "stripe",
+    ]) {
+        ToolCategory::CloudService
+    } else if has(&[
+        "sentry-cli",
+        "datadog-ci",
+        "newrelic",
+        "grafana",
+        "guance",
+        "owl",
+    ]) {
+        ToolCategory::Observability
+    } else if has(&[
+        "gh", "glab", "slack", "notion", "lark-cli", "meegle", "linear",
+    ]) {
+        ToolCategory::Collaboration
+    } else if has(&[
         "docker",
+        "docker-compose",
+        "docker-buildx",
+        "docker-credential-osxkeychain",
         "kubectl",
         "helm",
-        "aws",
-        "cloudflared",
         "orb",
+        "orbctl",
         "terraform",
-    ]
-    .iter()
-    .any(|name| joined.contains(name))
-    {
-        ToolCategory::CloudContainer
-    } else if [
+        "tofu",
+        "packer",
+    ]) {
+        ToolCategory::Infrastructure
+    } else if has(&[
         "adb",
         "android",
         "sdkmanager",
         "avdmanager",
         "apktool",
         "jadx",
-    ]
-    .iter()
-    .any(|name| joined.contains(name))
-    {
+    ]) {
         ToolCategory::Android
-    } else if [
+    } else if has(&[
         "node", "npm", "npx", "python", "pip", "uv", "java", "mvn", "cargo", "go",
-    ]
-    .iter()
-    .any(|name| joined == *name || joined.starts_with(&format!("{name} ")))
-    {
+    ]) {
         ToolCategory::Runtime
-    } else if ["git", "rg", "jq", "starship", "fastfetch", "brew"]
-        .iter()
-        .any(|name| joined == *name || joined.starts_with(&format!("{name} ")))
-    {
+    } else if has(&["git", "rg", "jq", "starship", "fastfetch", "brew"]) {
         ToolCategory::DeveloperTool
     } else {
         ToolCategory::Other
@@ -713,12 +755,14 @@ fn category_rank(category: &ToolCategory) -> u8 {
     match category {
         ToolCategory::AiAgent => 0,
         ToolCategory::Collaboration => 1,
-        ToolCategory::CloudContainer => 2,
-        ToolCategory::Runtime => 3,
-        ToolCategory::Android => 4,
-        ToolCategory::DeveloperTool => 5,
-        ToolCategory::Other => 6,
-        ToolCategory::System => 7,
+        ToolCategory::CloudService => 2,
+        ToolCategory::Observability => 3,
+        ToolCategory::Infrastructure => 4,
+        ToolCategory::Runtime => 5,
+        ToolCategory::Android => 6,
+        ToolCategory::DeveloperTool => 7,
+        ToolCategory::Other => 8,
+        ToolCategory::System => 9,
     }
 }
 
@@ -847,6 +891,45 @@ mod tests {
             .unwrap();
         assert_eq!(cursor.related_commands, vec!["code", "cursor"]);
         assert_eq!(cursor.aliases, cursor.related_commands);
+    }
+
+    #[test]
+    fn capability_inventory_excludes_runtimes_and_infrastructure() {
+        let capability_tools = [
+            test_tool(
+                "claude",
+                "user",
+                None,
+                ToolCategory::AiAgent,
+                Some("claude"),
+            ),
+            test_tool(
+                "aws",
+                "homebrew",
+                Some("awscli"),
+                ToolCategory::CloudService,
+                Some("aws"),
+            ),
+        ];
+        let excluded_tools = [
+            test_tool(
+                "docker",
+                "application",
+                Some("Docker.app"),
+                ToolCategory::Infrastructure,
+                None,
+            ),
+            test_tool(
+                "node",
+                "homebrew",
+                Some("node"),
+                ToolCategory::Runtime,
+                None,
+            ),
+        ];
+
+        assert!(capability_tools.iter().all(is_capability_cli));
+        assert!(excluded_tools.iter().all(|tool| !is_capability_cli(tool)));
     }
 
     #[test]
