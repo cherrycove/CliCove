@@ -8,7 +8,8 @@ import type {
 } from './types';
 
 export const api = {
-  scanTools: (showSystem: boolean) => invoke<ToolRecord[]>('scan_tools', { showSystem }),
+  scanTools: (showSystem: boolean, showAllExecutables: boolean) =>
+    invoke<ToolRecord[]>('scan_tools', { showSystem, showAllExecutables }),
   probeVersion: (toolId: string) => invoke<string>('probe_version', { toolId }),
   planUpdate: (toolId: string) => invoke<UpdatePlan>('plan_update', { toolId }),
   executeUpdate: (planId: string, cwd?: string) =>
@@ -35,4 +36,3 @@ export const api = {
   saveSettings: (settings: AppSettings) => invoke<void>('save_settings', { settings }),
   forceExit: () => invoke<void>('force_exit'),
 };
-

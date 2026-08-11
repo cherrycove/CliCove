@@ -28,6 +28,7 @@
 
   const defaultSettings: AppSettings = {
     showSystemTools: false,
+    showAllExecutables: false,
     trayEnabled: false,
     defaultWorkingDirectory: '',
   };
@@ -88,7 +89,10 @@
     error = '';
     configPreview = null;
     try {
-      tools = await api.scanTools(settings.showSystemTools);
+      tools = await api.scanTools(
+        settings.showSystemTools,
+        settings.showAllExecutables,
+      );
       if (!tools.some((tool) => tool.id === selectedId)) {
         selectedId = tools[0]?.id ?? '';
       }
@@ -218,7 +222,7 @@
 
     <nav aria-label="主导航">
       <button class:active={view === 'tools'} on:click={() => (view = 'tools')}>
-        <span class="nav-icon">⌘</span><span>工具</span><em>{tools.length}</em>
+        <span class="nav-icon">⌘</span><span>工具</span><em>{filtered.length}</em>
       </button>
       <button class:active={view === 'updates'} on:click={() => (view = 'updates')}>
         <span class="nav-icon">↟</span><span>更新</span><em>{updatable.length}</em>
@@ -297,6 +301,9 @@
               <div><dt>安装来源</dt><dd>{selected.source.label}{selected.source.packageName ? ` · ${selected.source.packageName}` : ''}</dd></div>
               <div><dt>可执行文件</dt><dd class="path">{selected.canonicalPath}</dd></div>
               <div><dt>别名</dt><dd>{selected.aliases.join(', ')}</dd></div>
+              {#if selected.relatedCommands.length > selected.aliases.length}
+                <div><dt>包含命令</dt><dd>{selected.relatedCommands.length} 个可执行入口</dd></div>
+              {/if}
             </dl>
 
             <div class="launch-options">
@@ -361,6 +368,7 @@
       <section class="page-card settings-page">
         <div class="setting-group"><div><h3>默认工作目录</h3><p>新终端和管理命令默认在此目录启动。</p></div><input bind:value={settings.defaultWorkingDirectory} /></div>
         <div class="setting-group"><div><h3>显示系统工具</h3><p>在主清单中包含 macOS 或 Windows 自带命令。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.showSystemTools} /><span></span></label></div>
+        <div class="setting-group"><div><h3>显示全部可执行文件</h3><p>关闭时按 CLI 产品或安装包聚合；开启后显示 PATH 中每个可执行入口。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.showAllExecutables} /><span></span></label></div>
         <div class="setting-group"><div><h3>驻留系统托盘</h3><p>默认关闭以减少后台内存占用；首版设置将在下次启动生效。</p></div><label class="switch"><input type="checkbox" bind:checked={settings.trayEnabled} /><span></span></label></div>
         <div class="privacy-note"><span>◈</span><div><strong>本地与隐私</strong><p>CLIHub 不读取 CLI 登录凭据，不保存完整终端输出，也不会在后台自动联网检查更新。</p></div></div>
         <button class="primary save-settings" on:click={saveAppSettings}>保存设置</button>

@@ -33,8 +33,8 @@ impl ToolRegistry {
             tools: RwLock::new(HashMap::new()),
         }
     }
-    pub fn scan(&self, show_system: bool) -> Vec<ToolRecord> {
-        let homebrew_leaves = homebrew_leaves();
+    pub fn scan(&self, show_system: bool, show_all_executables: bool) -> Vec<ToolRecord> {
+        let homebrew_requested = homebrew_requested_packages();
         let mut grouped: BTreeMap<String, (PathBuf, Vec<String>, bool)> = BTreeMap::new();
         for directory in login_path_directories() {
             let system_directory = is_system_directory(&directory);
@@ -64,13 +64,19 @@ impl ToolRegistry {
             }
         }
 
-        let mut records: Vec<_> = grouped
+        let raw_records: Vec<_> = grouped
             .into_iter()
             .map(|(_, (canonical, mut aliases, is_system))| {
                 aliases.sort();
-                self.make_record(canonical, aliases, is_system, &homebrew_leaves)
+                self.make_record(canonical, aliases, is_system, &homebrew_requested)
             })
             .collect();
+
+        let mut records = if show_all_executables {
+            raw_records
+        } else {
+            product_records(raw_records, &homebrew_requested)
+        };
 
         records.sort_by(|left, right| {
             category_rank(&left.category)
@@ -142,7 +148,7 @@ impl ToolRegistry {
         canonical: PathBuf,
         aliases: Vec<String>,
         is_system: bool,
-        homebrew_leaves: &HashSet<String>,
+        homebrew_requested: &HashSet<String>,
     ) -> ToolRecord {
         let adapter = find_adapter(&self.adapters, &aliases);
         let primary_name = adapter
@@ -185,7 +191,7 @@ impl ToolRegistry {
                     && source
                         .package_name
                         .as_ref()
-                        .map(|package| homebrew_leaves.contains(package))
+                        .map(|package| homebrew_requested.contains(package))
                         .unwrap_or(false)),
             diagnose: adapter.and_then(|item| item.diagnose.as_ref()).is_some(),
             auth: adapter.and_then(|item| item.auth.as_ref()).is_some(),
@@ -201,6 +207,7 @@ impl ToolRegistry {
                 .unwrap_or_else(|| humanize_name(&aliases[0])),
             executable,
             canonical_path: canonical.to_string_lossy().to_string(),
+            related_commands: aliases.clone(),
             aliases,
             version,
             source,
@@ -210,6 +217,181 @@ impl ToolRegistry {
             capabilities,
             config_paths,
         }
+    }
+}
+
+fn product_records(
+    records: Vec<ToolRecord>,
+    homebrew_requested: &HashSet<String>,
+) -> Vec<ToolRecord> {
+    let mut groups: BTreeMap<String, Vec<ToolRecord>> = BTreeMap::new();
+    for record in records {
+        let key = match (
+            record.adapter_id.as_deref(),
+            record.source.kind.as_str(),
+            record.source.package_name.as_deref(),
+        ) {
+            (Some(adapter), _, _) => format!("adapter:{adapter}"),
+            (None, "homebrew" | "npm", Some(package)) => {
+                format!("{}:{package}", record.source.kind)
+            }
+            _ => format!("command:{}", record.name.to_lowercase()),
+        };
+        groups.entry(key).or_default().push(record);
+    }
+
+    groups
+        .into_values()
+        .filter_map(|mut group| {
+            let package = group[0].source.package_name.clone();
+            let is_package_group = matches!(group[0].source.kind.as_str(), "homebrew" | "npm");
+            let is_direct_homebrew = group[0].source.kind == "homebrew"
+                && package
+                    .as_ref()
+                    .map(|name| homebrew_requested.contains(name))
+                    .unwrap_or(false);
+            let is_known_cli = preferred_command_for_package(package.as_deref()).is_some()
+                || group.iter().any(is_primary_command);
+
+            group.sort_by_key(|tool| product_rank(tool, package.as_deref()));
+            if is_package_group
+                && group[0].source.kind == "homebrew"
+                && !is_direct_homebrew
+                && !is_known_cli
+            {
+                return None;
+            }
+            if !is_package_group && !is_primary_command(&group[0]) {
+                return None;
+            }
+
+            let mut product = group.remove(0);
+            let mut related: Vec<String> = product.aliases.clone();
+            for tool in group {
+                related.extend(tool.aliases);
+            }
+            related.sort();
+            related.dedup();
+            if product.adapter_id.is_some() {
+                product.aliases = related.clone();
+            }
+            product.related_commands = related;
+            if let Some(package) = package.as_deref() {
+                if product.adapter_id.is_none() {
+                    product.display_name = package_display_name(package, &product.display_name);
+                }
+            }
+            Some(product)
+        })
+        .collect()
+}
+
+fn product_rank(tool: &ToolRecord, package: Option<&str>) -> (u8, usize, String) {
+    let rank = if tool.adapter_id.is_some() {
+        0
+    } else if preferred_command_for_package(package)
+        .map(|preferred| tool.aliases.iter().any(|alias| alias == preferred))
+        .unwrap_or(false)
+    {
+        1
+    } else if package
+        .map(|package| tool.aliases.iter().any(|alias| alias == package))
+        .unwrap_or(false)
+    {
+        2
+    } else if is_primary_command(tool) {
+        10
+    } else {
+        50
+    };
+    let shortest = tool
+        .aliases
+        .iter()
+        .map(String::len)
+        .min()
+        .unwrap_or(usize::MAX);
+    (rank, shortest, tool.name.clone())
+}
+
+fn preferred_command_for_package(package: Option<&str>) -> Option<&'static str> {
+    let package = package?;
+    if package.starts_with("openjdk") {
+        return Some("java");
+    }
+    if package.starts_with("python@") {
+        return Some("python3");
+    }
+    match package {
+        "awscli" => Some("aws"),
+        "docker-buildx" => Some("docker-buildx"),
+        "maven" => Some("mvn"),
+        "node" => Some("node"),
+        "rust" => Some("cargo"),
+        "uv" => Some("uv"),
+        _ => None,
+    }
+}
+
+fn is_primary_command(tool: &ToolRecord) -> bool {
+    if tool.adapter_id.is_some() || tool.category != ToolCategory::Other {
+        return true;
+    }
+    const PRIMARY: &[&str] = &[
+        "brew",
+        "node",
+        "npm",
+        "npx",
+        "python3",
+        "pip3",
+        "uv",
+        "uvx",
+        "java",
+        "javac",
+        "mvn",
+        "cargo",
+        "rustc",
+        "git",
+        "rg",
+        "jq",
+        "docker",
+        "docker-compose",
+        "docker-buildx",
+        "kubectl",
+        "helm",
+        "aws",
+        "cloudflared",
+        "orb",
+        "orbctl",
+        "android",
+        "adb",
+        "sdkmanager",
+        "avdmanager",
+        "lint",
+        "apkanalyzer",
+        "retrace",
+        "apktool",
+        "jadx",
+        "starship",
+        "fastfetch",
+    ];
+    tool.aliases
+        .iter()
+        .any(|alias| PRIMARY.contains(&alias.as_str()))
+}
+
+fn package_display_name(package: &str, fallback: &str) -> String {
+    if package.starts_with("openjdk@") {
+        return format!("OpenJDK {}", package.trim_start_matches("openjdk@"));
+    }
+    if package.starts_with("python@") {
+        return format!("Python {}", package.trim_start_matches("python@"));
+    }
+    match package {
+        "awscli" => "AWS CLI".into(),
+        "docker-buildx" => "Docker Buildx".into(),
+        "maven" => "Apache Maven".into(),
+        "rust" => "Rust Toolchain".into(),
+        _ => fallback.into(),
     }
 }
 
@@ -254,33 +436,57 @@ fn is_transient_directory(path: &Path) -> bool {
     value.contains("/.cache/codex-runtimes/")
         || value.contains("/.codex/tmp/")
         || value.contains("/codex.system/")
+        || value.ends_with("/node_modules/.bin")
         || value == "/pkg/env/global/bin"
         || value.contains("/chatgpt.app/contents/resources")
 }
 
-fn homebrew_leaves() -> HashSet<String> {
+fn homebrew_requested_packages() -> HashSet<String> {
     let candidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"];
     candidates
         .iter()
         .find(|path| Path::new(path).is_file())
         .and_then(|path| {
             Command::new(path)
-                .arg("leaves")
+                .args(["info", "--json=v2", "--installed"])
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
                 .output()
                 .ok()
         })
         .filter(|output| output.status.success())
-        .map(|output| {
-            String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
+        .map(|output| parse_homebrew_requested_packages(&output.stdout))
         .unwrap_or_default()
+}
+
+fn parse_homebrew_requested_packages(json: &[u8]) -> HashSet<String> {
+    let mut requested = HashSet::new();
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(json) else {
+        return requested;
+    };
+    let Some(formulae) = value.get("formulae").and_then(serde_json::Value::as_array) else {
+        return requested;
+    };
+    for formula in formulae {
+        let installed_on_request = formula
+            .get("installed")
+            .and_then(serde_json::Value::as_array)
+            .map(|installed| {
+                installed.iter().any(|entry| {
+                    entry
+                        .get("installed_on_request")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        if installed_on_request {
+            if let Some(name) = formula.get("name").and_then(serde_json::Value::as_str) {
+                requested.insert(name.to_string());
+            }
+        }
+    }
+    requested
 }
 
 fn is_system_directory(path: &Path) -> bool {
@@ -522,6 +728,44 @@ mod tests {
     use std::io::Write;
     use tempfile::TempDir;
 
+    fn test_tool(
+        name: &str,
+        source_kind: &str,
+        package_name: Option<&str>,
+        category: ToolCategory,
+        adapter_id: Option<&str>,
+    ) -> ToolRecord {
+        ToolRecord {
+            id: format!("id-{name}"),
+            name: name.into(),
+            display_name: humanize_name(name),
+            executable: format!("/test/bin/{name}"),
+            canonical_path: format!("/test/bin/{name}"),
+            aliases: vec![name.into()],
+            related_commands: vec![name.into()],
+            version: None,
+            source: ToolSource {
+                kind: source_kind.into(),
+                label: source_kind.into(),
+                package_name: package_name.map(str::to_string),
+                package_version: None,
+                scope: "user".into(),
+            },
+            category,
+            is_system: false,
+            adapter_id: adapter_id.map(str::to_string),
+            capabilities: ToolCapabilities {
+                terminal: true,
+                version_probe: true,
+                update: false,
+                diagnose: false,
+                auth: false,
+                config: false,
+            },
+            config_paths: Vec::new(),
+        }
+    }
+
     #[test]
     fn source_detection_reads_homebrew_formula() {
         let source = detect_source(
@@ -550,9 +794,68 @@ mod tests {
     }
 
     #[test]
+    fn homebrew_request_parser_excludes_dependencies() {
+        let packages = parse_homebrew_requested_packages(
+            br#"{"formulae":[
+                {"name":"helm","installed":[{"installed_on_request":true}]},
+                {"name":"gettext","installed":[{"installed_on_request":false}]}
+            ]}"#,
+        );
+        assert!(packages.contains("helm"));
+        assert!(!packages.contains("gettext"));
+    }
+
+    #[test]
+    fn product_inventory_filters_dependencies_and_merges_adapter_commands() {
+        let records = vec![
+            test_tool(
+                "gettext",
+                "homebrew",
+                Some("gettext"),
+                ToolCategory::Other,
+                None,
+            ),
+            test_tool(
+                "rg",
+                "homebrew",
+                Some("ripgrep"),
+                ToolCategory::DeveloperTool,
+                None,
+            ),
+            test_tool(
+                "cursor",
+                "application",
+                Some("Cursor.app"),
+                ToolCategory::AiAgent,
+                Some("cursor"),
+            ),
+            test_tool(
+                "code",
+                "application",
+                Some("Cursor.app"),
+                ToolCategory::AiAgent,
+                Some("cursor"),
+            ),
+        ];
+
+        let products = product_records(records, &HashSet::new());
+        assert!(!products.iter().any(|tool| tool.name == "gettext"));
+        assert!(products.iter().any(|tool| tool.name == "rg"));
+        let cursor = products
+            .iter()
+            .find(|tool| tool.adapter_id.as_deref() == Some("cursor"))
+            .unwrap();
+        assert_eq!(cursor.related_commands, vec!["code", "cursor"]);
+        assert_eq!(cursor.aliases, cursor.related_commands);
+    }
+
+    #[test]
     fn codex_runtime_paths_are_not_global_inventory() {
         assert!(is_transient_directory(Path::new(
             "/Users/example/.cache/codex-runtimes/runtime/bin"
+        )));
+        assert!(is_transient_directory(Path::new(
+            "/Users/example/project/node_modules/.bin"
         )));
         assert!(!is_transient_directory(Path::new(
             "/Users/example/.local/bin"

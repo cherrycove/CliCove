@@ -43,6 +43,7 @@ pub struct ToolRecord {
     pub executable: String,
     pub canonical_path: String,
     pub aliases: Vec<String>,
+    pub related_commands: Vec<String>,
     pub version: Option<String>,
     pub source: ToolSource,
     pub category: ToolCategory,
@@ -137,9 +138,10 @@ pub struct ConfigPreview {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub show_system_tools: bool,
+    pub show_all_executables: bool,
     pub tray_enabled: bool,
     pub default_working_directory: String,
 }
@@ -148,6 +150,7 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             show_system_tools: false,
+            show_all_executables: false,
             tray_enabled: false,
             default_working_directory: dirs::home_dir()
                 .unwrap_or_default()

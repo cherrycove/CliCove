@@ -32,6 +32,7 @@ export interface ToolRecord {
   executable: string;
   canonicalPath: string;
   aliases: string[];
+  relatedCommands: string[];
   version?: string;
   source: ToolSource;
   category: ToolCategory;
@@ -74,7 +75,7 @@ export interface ConfigPreview {
 
 export interface AppSettings {
   showSystemTools: boolean;
+  showAllExecutables: boolean;
   trayEnabled: boolean;
   defaultWorkingDirectory: string;
 }
-

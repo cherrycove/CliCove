@@ -9,6 +9,7 @@ const tool: ToolRecord = {
   executable: '/tmp/grok',
   canonicalPath: '/tmp/grok',
   aliases: ['agent', 'grok'],
+  relatedCommands: ['agent', 'grok'],
   version: '1.0.0',
   source: { kind: 'user', label: 'User PATH', scope: 'user' },
   category: 'ai-agent',
@@ -39,4 +40,3 @@ describe('tool list helpers', () => {
     expect(splitArguments(' --model\nclaude-sonnet\n\n')).toEqual(['--model', 'claude-sonnet']);
   });
 });
-

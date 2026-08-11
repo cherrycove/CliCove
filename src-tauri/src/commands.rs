@@ -12,9 +12,10 @@ use uuid::Uuid;
 #[tauri::command]
 pub fn scan_tools(
     show_system: bool,
+    show_all_executables: bool,
     state: State<'_, AppState>,
 ) -> Result<Vec<ToolRecord>, String> {
-    let tools = state.registry.scan(show_system);
+    let tools = state.registry.scan(show_system, show_all_executables);
     state.storage.cache_tools(&tools)?;
     Ok(tools)
 }

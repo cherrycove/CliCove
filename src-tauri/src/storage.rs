@@ -141,6 +141,7 @@ mod tests {
         let storage = Storage::new(&temp.path().join("clihub.db")).unwrap();
         let settings = AppSettings {
             show_system_tools: true,
+            show_all_executables: false,
             tray_enabled: false,
             default_working_directory: "/tmp".into(),
         };
