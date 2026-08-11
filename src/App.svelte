@@ -45,6 +45,7 @@
   let sessions: TerminalSession[] = [];
   let activeSessionId = '';
   let argsText = '';
+  let toolListElement: HTMLElement | undefined;
   let updatePlan: UpdatePlan | null = null;
   let configPreview: ConfigPreview | null = null;
   let confirmingExit = false;
@@ -202,6 +203,12 @@
     return splitArguments(argsText);
   }
 
+  function scrollToolList(direction: -1 | 1) {
+    if (!toolListElement) return;
+    const distance = Math.max(toolListElement.clientHeight * 0.8, 240);
+    toolListElement.scrollBy({ top: distance * direction, behavior: 'smooth' });
+  }
+
   function showError(cause: unknown) {
     error = cause instanceof Error ? cause.message : String(cause);
     window.setTimeout(() => (error = ''), 7000);
@@ -263,10 +270,14 @@
             <option value={value}>{label}</option>
           {/each}
         </select>
+        <div class="list-scroll-controls" aria-label="工具列表滚动控制">
+          <button title="向上翻页" aria-label="向上翻页" on:click={() => scrollToolList(-1)}>↑</button>
+          <button title="向下翻页" aria-label="向下翻页" on:click={() => scrollToolList(1)}>↓</button>
+        </div>
       </div>
 
       <div class="tool-layout">
-        <section class="tool-list" aria-label="CLI 工具列表">
+        <section bind:this={toolListElement} class="tool-list" aria-label="CLI 工具列表">
           {#if scanning && tools.length === 0}
             <div class="loading-list">{#each Array(8) as _}<span></span>{/each}</div>
           {:else if filtered.length === 0}
