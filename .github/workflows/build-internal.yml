@@ -1,0 +1,33 @@
+name: Build internal installers
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            bundles: dmg
+            artifact: macOS
+          - os: windows-latest
+            bundles: msi,nsis
+            artifact: Windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm ci
+      - run: npm run tauri build -- --bundles ${{ matrix.bundles }}
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-14' && '-' || '' }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CLIHub-${{ matrix.artifact }}
+          path: src-tauri/target/release/bundle/**/*

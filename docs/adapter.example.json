@@ -1,0 +1,18 @@
+{
+  "id": "example-cli",
+  "displayName": "Example CLI",
+  "names": ["example", "ex"],
+  "category": "developer-tool",
+  "versionCommands": [["--version"], ["version"]],
+  "update": {
+    "executable": "{self}",
+    "args": ["update"]
+  },
+  "diagnose": {
+    "executable": "{self}",
+    "args": ["doctor"]
+  },
+  "auth": null,
+  "configPaths": ["~/.config/example/config.json"],
+  "configCommand": null
+}
