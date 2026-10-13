@@ -29,5 +29,5 @@ jobs:
           APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-14' && '-' || '' }}
       - uses: actions/upload-artifact@v4
         with:
-          name: CLIHub-${{ matrix.artifact }}
+          name: CliCove-${{ matrix.artifact }}
           path: src-tauri/target/release/bundle/**/*
