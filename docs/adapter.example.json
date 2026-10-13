@@ -13,6 +13,19 @@
     "args": ["doctor"]
   },
   "auth": null,
+  "dependencies": ["node"],
+  "matchers": [
+    {
+      "name": "example",
+      "pathContains": [],
+      "packageNames": []
+    },
+    {
+      "name": "ex",
+      "pathContains": ["/example-cli/"],
+      "packageNames": []
+    }
+  ],
   "configPaths": ["~/.config/example/config.json"],
   "configCommand": null
 }
