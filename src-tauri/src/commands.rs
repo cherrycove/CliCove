@@ -1,91 +1,102 @@
+use crate::adapters::config_preview_fields;
 use crate::models::{
-    AdapterManifest, AppSettings, CommandTemplate, ConfigPreview, TerminalSession,
-    TerminalSpawnRequest, ToolRecord, UpdatePlan,
+    AdapterManifest, AppSettings, CommandTemplate, ConfigPreview, CustomAdapterInfo,
+    SessionHistoryRecord, TerminalSession, TerminalSpawnRequest, ToolRecord,
 };
 use crate::AppState;
-use regex::Regex;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, State};
-use uuid::Uuid;
+use tauri::{AppHandle, Manager, State};
 
 #[tauri::command]
-pub fn scan_tools(
+pub async fn scan_tools(
     show_system: bool,
     show_all_executables: bool,
-    state: State<'_, AppState>,
+    app: AppHandle,
 ) -> Result<Vec<ToolRecord>, String> {
-    let tools = state.registry.scan(show_system, show_all_executables);
-    state.storage.cache_tools(&tools)?;
-    Ok(tools)
+    crate::background::run(move || {
+        let state = app.state::<AppState>();
+        let tools = state.registry.scan(show_system, show_all_executables);
+        state.storage.cache_tools(&tools)?;
+        let resources = crate::resources::discover(&tools);
+        state.storage.sync_discovered_resources(&resources)?;
+        Ok(tools)
+    })
+    .await
 }
 
 #[tauri::command]
-pub fn probe_version(tool_id: String, state: State<'_, AppState>) -> Result<String, String> {
-    state.registry.probe(&tool_id)
+pub async fn probe_version(tool_id: String, app: AppHandle) -> Result<String, String> {
+    crate::background::run(move || {
+        let state = app.state::<AppState>();
+        let tool = require_tool(&state, &tool_id)?;
+        require_runtime_dependencies(&tool)?;
+        state.registry.probe(&tool_id)
+    })
+    .await
 }
 
 #[tauri::command]
 pub fn list_adapters(state: State<'_, AppState>) -> Vec<AdapterManifest> {
-    state.adapters.clone()
+    state.adapters.read().clone()
 }
 
 #[tauri::command]
-pub fn plan_update(tool_id: String, state: State<'_, AppState>) -> Result<UpdatePlan, String> {
-    let tool = require_tool(&state, &tool_id)?;
-    if !tool.capabilities.update {
-        return Err("该工具不是用户直接安装的包，不能单独更新".into());
-    }
-    let template = state
-        .registry
-        .adapter_for(&tool)
-        .and_then(|adapter| adapter.update)
-        .or_else(|| package_manager_update(&tool))
-        .ok_or_else(|| "该工具没有可验证的官方更新方式".to_string())?;
-    let (executable, args) = resolve_template(&state, &tool, &template)?;
-    validate_args(&args)?;
-    let plan = UpdatePlan {
-        id: Uuid::new_v4().to_string(),
-        tool_id: tool.id.clone(),
-        tool_name: tool.display_name.clone(),
-        current_version: tool.version.clone().or(tool.source.package_version.clone()),
-        target_version: "latest".into(),
-        display_command: display_command(&executable, &args),
-        executable,
-        args,
-        source: tool.source.label.clone(),
-        requires_elevation: false,
-    };
-    state
-        .pending_updates
-        .lock()
-        .insert(plan.id.clone(), plan.clone());
-    Ok(plan)
+pub fn list_custom_adapters(state: State<'_, AppState>) -> Vec<CustomAdapterInfo> {
+    state.reload_adapters();
+    state.custom_adapters.read().clone()
 }
 
 #[tauri::command]
-pub fn execute_update(
-    plan_id: String,
-    cwd: Option<String>,
-    app: AppHandle,
+pub fn open_adapter_directory(state: State<'_, AppState>) -> Result<(), String> {
+    open::that(&state.adapter_directory).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn trust_custom_adapter(
+    path: String,
+    fingerprint: String,
     state: State<'_, AppState>,
-) -> Result<TerminalSession, String> {
-    let plan = state
-        .pending_updates
-        .lock()
-        .remove(&plan_id)
-        .ok_or_else(|| "更新计划已失效，请重新生成并确认".to_string())?;
-    let directory = resolve_cwd(cwd, &state.storage.load_settings())?;
-    state.terminal.spawn(
-        app,
-        plan.tool_id,
-        format!("更新 {}", plan.tool_name),
-        plan.executable,
-        plan.args,
-        directory,
-        110,
-        32,
-    )
+) -> Result<Vec<CustomAdapterInfo>, String> {
+    state.reload_adapters();
+    let adapter = state
+        .custom_adapters
+        .read()
+        .iter()
+        .find(|adapter| adapter.path == path && adapter.fingerprint == fingerprint)
+        .cloned()
+        .ok_or_else(|| "适配器文件已变化，请刷新后重新审查".to_string())?;
+    if adapter.status != "pending" {
+        return Err("只有待审查且无冲突的适配器可以被信任".into());
+    }
+    state
+        .storage
+        .trust_adapter(&adapter.path, &adapter.fingerprint)?;
+    state.reload_adapters();
+    Ok(state.custom_adapters.read().clone())
+}
+
+#[tauri::command]
+pub fn revoke_custom_adapter(
+    path: String,
+    fingerprint: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<CustomAdapterInfo>, String> {
+    state.reload_adapters();
+    let adapter = state
+        .custom_adapters
+        .read()
+        .iter()
+        .find(|adapter| adapter.path == path && adapter.fingerprint == fingerprint)
+        .cloned()
+        .ok_or_else(|| "适配器文件已变化，请刷新后重试".to_string())?;
+    if !adapter.has_stored_trust {
+        return Err("该适配器没有已保存的信任记录".into());
+    }
+    state.storage.revoke_adapter(&adapter.path)?;
+    state.reload_adapters();
+    Ok(state.custom_adapters.read().clone())
 }
 
 #[tauri::command]
@@ -95,9 +106,11 @@ pub fn spawn_terminal(
     state: State<'_, AppState>,
 ) -> Result<TerminalSession, String> {
     let tool = require_tool(&state, &request.tool_id)?;
+    require_runtime_dependencies(&tool)?;
     validate_args(&request.args)?;
     let directory = resolve_cwd(request.cwd, &state.storage.load_settings())?;
     state.terminal.spawn(
+        None,
         app,
         tool.id,
         tool.display_name,
@@ -106,6 +119,8 @@ pub fn spawn_terminal(
         directory,
         request.cols.unwrap_or(110),
         request.rows.unwrap_or(32),
+        state.registry.execution_path(),
+        "interactive".into(),
     )
 }
 
@@ -171,6 +186,23 @@ pub fn terminal_sessions(state: State<'_, AppState>) -> Vec<TerminalSession> {
 }
 
 #[tauri::command]
+pub fn terminal_rename(
+    session_id: String,
+    title: String,
+    state: State<'_, AppState>,
+) -> Result<TerminalSession, String> {
+    state.terminal.rename(&session_id, &title)
+}
+
+#[tauri::command]
+pub fn session_history(
+    limit: Option<usize>,
+    state: State<'_, AppState>,
+) -> Result<Vec<SessionHistoryRecord>, String> {
+    state.storage.session_history(limit.unwrap_or(50))
+}
+
+#[tauri::command]
 pub fn config_preview(
     tool_id: String,
     path_index: usize,
@@ -181,7 +213,13 @@ pub fn config_preview(
         .config_paths
         .get(path_index)
         .ok_or_else(|| "配置路径不在适配器白名单中".to_string())?;
-    preview_file(Path::new(path))
+    let adapter_id = tool
+        .adapter_id
+        .as_deref()
+        .ok_or_else(|| "只有内置适配器支持安全配置预览".to_string())?;
+    let fields = config_preview_fields(adapter_id, path_index)
+        .ok_or_else(|| "该配置没有经过审核的安全预览规则，请使用外部编辑器打开".to_string())?;
+    preview_file(Path::new(path), fields)
 }
 
 #[tauri::command]
@@ -210,6 +248,17 @@ pub fn open_config(
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> AppSettings {
     state.storage.load_settings()
+}
+
+#[tauri::command]
+pub fn save_scan_settings(
+    show_system: bool,
+    show_all_executables: bool,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state
+        .storage
+        .save_scan_settings(show_system, show_all_executables)
 }
 
 #[tauri::command]
@@ -243,6 +292,7 @@ fn run_adapter_action(
     state: &State<'_, AppState>,
 ) -> Result<TerminalSession, String> {
     let tool = require_tool(state, tool_id)?;
+    require_runtime_dependencies(&tool)?;
     let adapter = state
         .registry
         .adapter_for(&tool)
@@ -257,6 +307,7 @@ fn run_adapter_action(
     let (executable, args) = resolve_template(state, &tool, &template)?;
     let directory = resolve_cwd(None, &state.storage.load_settings())?;
     state.terminal.spawn(
+        None,
         app,
         tool.id,
         format!("{} · {}", tool.display_name, action),
@@ -265,6 +316,8 @@ fn run_adapter_action(
         directory,
         110,
         32,
+        state.registry.execution_path(),
+        action.into(),
     )
 }
 
@@ -273,6 +326,24 @@ fn require_tool(state: &State<'_, AppState>, id: &str) -> Result<ToolRecord, Str
         .registry
         .get(id)
         .ok_or_else(|| "工具不在当前扫描清单中，请先刷新".into())
+}
+
+fn require_runtime_dependencies(tool: &ToolRecord) -> Result<(), String> {
+    let missing: Vec<_> = tool
+        .runtime_dependencies
+        .iter()
+        .filter(|dependency| !dependency.available)
+        .map(|dependency| dependency.name.as_str())
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} 缺少运行依赖：{}。请安装依赖后重新扫描。",
+            tool.display_name,
+            missing.join(", ")
+        ))
+    }
 }
 
 fn resolve_template(
@@ -285,37 +356,10 @@ fn resolve_template(
     } else {
         state
             .registry
-            .find_by_name(&template.executable)
-            .map(|record| record.executable)
+            .resolve_executable(&template.executable)
             .ok_or_else(|| format!("找不到更新依赖：{}", template.executable))?
     };
     Ok((executable, template.args.clone()))
-}
-
-fn package_manager_update(tool: &ToolRecord) -> Option<CommandTemplate> {
-    let package = tool.source.package_name.as_ref()?;
-    if !safe_package_name(package) {
-        return None;
-    }
-    match tool.source.kind.as_str() {
-        "homebrew" => Some(CommandTemplate {
-            executable: "brew".into(),
-            args: vec!["upgrade".into(), package.clone()],
-        }),
-        "npm" => Some(CommandTemplate {
-            executable: "npm".into(),
-            args: vec!["install".into(), "-g".into(), format!("{package}@latest")],
-        }),
-        _ => None,
-    }
-}
-
-fn safe_package_name(package: &str) -> bool {
-    !package.is_empty()
-        && package.len() < 180
-        && package
-            .chars()
-            .all(|character| character.is_ascii_alphanumeric() || "@+._-/".contains(character))
 }
 
 fn validate_args(args: &[String]) -> Result<(), String> {
@@ -331,25 +375,6 @@ fn validate_args(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn display_command(executable: &str, args: &[String]) -> String {
-    std::iter::once(executable)
-        .chain(args.iter().map(String::as_str))
-        .map(quote_display)
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn quote_display(value: &str) -> String {
-    if value
-        .chars()
-        .all(|character| character.is_ascii_alphanumeric() || "/._@:+-=\\".contains(character))
-    {
-        value.into()
-    } else {
-        format!("\"{}\"", value.replace('"', "\\\""))
-    }
-}
-
 fn resolve_cwd(cwd: Option<String>, settings: &AppSettings) -> Result<PathBuf, String> {
     let directory =
         PathBuf::from(cwd.unwrap_or_else(|| settings.default_working_directory.clone()));
@@ -360,32 +385,110 @@ fn resolve_cwd(cwd: Option<String>, settings: &AppSettings) -> Result<PathBuf, S
     }
 }
 
-fn preview_file(path: &Path) -> Result<ConfigPreview, String> {
+fn preview_file(path: &Path, allowed_fields: &[&str]) -> Result<ConfigPreview, String> {
     if !path.exists() {
         return Ok(ConfigPreview {
             path: path.to_string_lossy().to_string(),
             exists: false,
             content: String::new(),
             truncated: false,
+            notice: "配置文件尚未创建".into(),
         });
     }
-    let bytes = fs::read(path).map_err(|error| error.to_string())?;
-    let truncated = bytes.len() > 262_144;
-    let content = String::from_utf8_lossy(&bytes[..bytes.len().min(262_144)]).to_string();
+    const LIMIT: u64 = 262_144;
+    let mut bytes = Vec::new();
+    fs::File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > LIMIT {
+        return Err("配置文件超过 256 KiB 安全预览上限，请使用外部编辑器打开".into());
+    }
+    let content = std::str::from_utf8(&bytes).map_err(|_| "配置文件不是有效 UTF-8".to_string())?;
+    let parsed = parse_structured_config(path, content)?;
+    let filtered = select_allowed_fields(&parsed, allowed_fields);
+    let has_fields = filtered
+        .as_object()
+        .map(|object| !object.is_empty())
+        .unwrap_or(false);
     Ok(ConfigPreview {
         path: path.to_string_lossy().to_string(),
         exists: true,
-        content: redact_config(&content),
-        truncated,
+        content: serde_json::to_string_pretty(&filtered).map_err(|error| error.to_string())?,
+        truncated: false,
+        notice: if has_fields {
+            "仅显示内置适配器审核通过的非敏感字段；凭据、环境变量和未知字段均已省略。".into()
+        } else {
+            "未找到可安全预览的非敏感字段；文件内容未显示。".into()
+        },
     })
 }
 
-fn redact_config(content: &str) -> String {
-    let pattern = Regex::new(
-        r#"(?im)((?:\"|')?(?:api[_-]?key|token|secret|password|credential|authorization)(?:\"|')?\s*[:=]\s*)(\"[^\"]*\"|'[^']*'|[^,\s}\]]+)"#,
-    )
-    .expect("redaction regex is valid");
-    pattern.replace_all(content, "${1}\"***\"").to_string()
+fn parse_structured_config(path: &Path, content: &str) -> Result<serde_json::Value, String> {
+    match path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("json") => {
+            serde_json::from_str(content).map_err(|error| format!("配置 JSON 无法解析：{error}"))
+        }
+        Some("toml") => toml::from_str::<toml::Value>(content)
+            .map_err(|error| format!("配置 TOML 无法解析：{error}"))
+            .and_then(|value| serde_json::to_value(value).map_err(|error| error.to_string())),
+        _ => Err("只有经过审核的 JSON 或 TOML 配置支持安全预览".into()),
+    }
+}
+
+fn select_allowed_fields(root: &serde_json::Value, allowed_fields: &[&str]) -> serde_json::Value {
+    let mut selected = serde_json::Map::new();
+    for field in allowed_fields {
+        let parts: Vec<_> = field.split('.').collect();
+        let Some(value) = value_at_path(root, &parts) else {
+            continue;
+        };
+        if !matches!(
+            value,
+            serde_json::Value::Null
+                | serde_json::Value::Bool(_)
+                | serde_json::Value::Number(_)
+                | serde_json::Value::String(_)
+        ) {
+            continue;
+        }
+        insert_value_at_path(&mut selected, &parts, value.clone());
+    }
+    serde_json::Value::Object(selected)
+}
+
+fn value_at_path<'a>(root: &'a serde_json::Value, parts: &[&str]) -> Option<&'a serde_json::Value> {
+    let mut current = root;
+    for part in parts {
+        current = current.as_object()?.get(*part)?;
+    }
+    Some(current)
+}
+
+fn insert_value_at_path(
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    parts: &[&str],
+    value: serde_json::Value,
+) {
+    let Some((first, rest)) = parts.split_first() else {
+        return;
+    };
+    if rest.is_empty() {
+        target.insert((*first).into(), value);
+        return;
+    }
+    let entry = target
+        .entry((*first).to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if let Some(object) = entry.as_object_mut() {
+        insert_value_at_path(object, rest, value);
+    }
 }
 
 #[cfg(test)]
@@ -393,17 +496,38 @@ mod tests {
     use super::*;
 
     #[test]
-    fn package_names_reject_shell_metacharacters() {
-        assert!(safe_package_name("@scope/tool"));
-        assert!(!safe_package_name("tool; rm -rf /"));
+    fn structured_preview_only_copies_explicit_scalar_fields() {
+        let input = serde_json::json!({
+            "model": "safe-model",
+            "api_key": "secret",
+            "env": {"TOKEN": "secret"},
+            "permissions": {
+                "defaultMode": "manual",
+                "allow": ["Bash(*)"]
+            }
+        });
+        let output = select_allowed_fields(
+            &input,
+            &["model", "permissions.defaultMode", "permissions.allow"],
+        );
+        let rendered = serde_json::to_string(&output).unwrap();
+        assert!(rendered.contains("safe-model"));
+        assert!(rendered.contains("manual"));
+        assert!(!rendered.contains("secret"));
+        assert!(!rendered.contains("TOKEN"));
+        assert!(!rendered.contains("Bash"));
     }
 
     #[test]
-    fn config_redaction_covers_json_and_toml() {
-        let input = "api_key = \"secret\"\n{\"token\":\"abc\",\"model\":\"x\"}";
-        let output = redact_config(input);
-        assert!(!output.contains("secret"));
-        assert!(!output.contains("abc"));
-        assert!(output.contains("model"));
+    fn structured_preview_parses_toml_without_exposing_unknown_fields() {
+        let parsed = parse_structured_config(
+            Path::new("config.toml"),
+            "model = \"gpt-safe\"\napi_key = \"secret\"\n[permissions]\ndefaultMode = \"manual\"",
+        )
+        .unwrap();
+        let output = select_allowed_fields(&parsed, &["model", "permissions.defaultMode"]);
+        let rendered = serde_json::to_string(&output).unwrap();
+        assert!(rendered.contains("gpt-safe"));
+        assert!(!rendered.contains("secret"));
     }
 }

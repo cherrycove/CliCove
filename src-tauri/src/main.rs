@@ -1,3 +1,3 @@
 fn main() {
-    clihub_lib::run();
+    clicove_lib::run();
 }

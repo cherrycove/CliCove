@@ -1,0 +1,86 @@
+[
+  {
+    "id": "codex", "displayName": "Codex", "category": "ai-agent",
+    "description": "OpenAI 编码 Agent，用于代码编写与开发任务。",
+    "commands": ["codex"], "standaloneCommands": ["codex"],
+    "packages": [{ "source": "npm", "name": "@openai/codex", "install": true }]
+  },
+  {
+    "id": "lark-cli", "displayName": "Lark CLI", "category": "collaboration",
+    "description": "飞书 / Lark 协作服务，访问文档、消息和业务数据。",
+    "commands": ["lark-cli"], "standaloneCommands": ["lark-cli"], "dependencies": ["node"],
+    "packages": [{ "source": "npm", "name": "@larksuite/cli", "install": true }]
+  },
+  {
+    "id": "meegle", "displayName": "Meegle CLI", "category": "collaboration",
+    "description": "飞书项目 / Meegle 项目管理与工作项协作。",
+    "commands": ["meegle"], "standaloneCommands": ["meegle"], "dependencies": ["node"],
+    "packages": [{ "source": "npm", "name": "@lark-project/meegle", "install": true }]
+  },
+  {
+    "id": "trellis", "displayName": "Trellis", "category": "ai-agent",
+    "description": "面向 AI Agent 的开发工作流工具。",
+    "commands": ["trellis", "tl"], "standaloneCommands": ["trellis"], "dependencies": ["node"],
+    "packages": [{ "source": "npm", "name": "@mindfoldhq/trellis", "install": true }]
+  },
+  {
+    "id": "wrangler", "displayName": "Cloudflare Wrangler", "category": "cloud-service",
+    "description": "Cloudflare Workers 开发、部署与云服务管理。",
+    "commands": ["wrangler"], "standaloneCommands": ["wrangler"], "dependencies": ["node"],
+    "packages": [{ "source": "npm", "name": "wrangler", "install": true }]
+  },
+  {
+    "id": "vercel", "displayName": "Vercel CLI", "category": "cloud-service",
+    "description": "Vercel 项目部署、预览环境与托管服务管理。",
+    "commands": ["vercel", "vc"], "standaloneCommands": ["vercel"], "dependencies": ["node"],
+    "packages": [{ "source": "npm", "name": "vercel", "install": true }]
+  },
+  {
+    "id": "netlify", "displayName": "Netlify CLI", "category": "cloud-service",
+    "description": "Netlify 站点部署、本地开发与托管服务管理。",
+    "commands": ["netlify"], "standaloneCommands": ["netlify"], "dependencies": ["node"],
+    "packages": [{ "source": "npm", "name": "netlify-cli", "install": true }]
+  },
+  {
+    "id": "firebase", "displayName": "Firebase CLI", "category": "cloud-service",
+    "description": "Firebase 应用后端、Hosting、Functions 与本地模拟器管理。",
+    "commands": ["firebase"], "standaloneCommands": ["firebase"], "dependencies": ["node"],
+    "packages": [{ "source": "npm", "name": "firebase-tools", "install": true }]
+  },
+  {
+    "id": "volcengine", "displayName": "Volcengine CLI", "category": "cloud-service",
+    "description": "火山引擎云资源与服务管理；命令入口为 ve。",
+    "commands": ["ve"],
+    "packages": [{ "source": "npm", "name": "@volcengine/cli", "install": true }]
+  },
+  {
+    "id": "claude", "displayName": "Claude Code", "category": "ai-agent",
+    "description": "Anthropic 编码 Agent，用于代码编写与开发任务。",
+    "commands": ["claude"], "standaloneCommands": ["claude"],
+    "packages": [{ "source": "homebrew", "name": "claude-code", "install": true, "cask": true }]
+  },
+  {
+    "id": "opencode", "displayName": "OpenCode", "category": "ai-agent",
+    "description": "OpenCode 编码 Agent 与开发会话管理。",
+    "commands": ["opencode"], "standaloneCommands": ["opencode"],
+    "packages": [{ "source": "homebrew", "name": "opencode", "install": true }]
+  },
+  {
+    "id": "aws", "displayName": "AWS CLI", "category": "cloud-service",
+    "description": "Amazon Web Services 云资源与服务管理。",
+    "commands": ["aws"], "standaloneCommands": ["aws"],
+    "packages": [{ "source": "homebrew", "name": "awscli", "install": true }]
+  },
+  {
+    "id": "cloudflared", "displayName": "Cloudflare Tunnel", "category": "cloud-service",
+    "description": "Cloudflare Tunnel 连接与服务访问管理。",
+    "commands": ["cloudflared"], "standaloneCommands": ["cloudflared"],
+    "packages": [{ "source": "homebrew", "name": "cloudflared", "install": true }]
+  },
+  {
+    "id": "stripe", "displayName": "Stripe CLI", "category": "cloud-service",
+    "description": "Stripe 支付服务 API 调试、事件测试与 Webhook 转发。",
+    "commands": ["stripe"], "standaloneCommands": ["stripe"],
+    "packages": [{ "source": "homebrew", "name": "stripe", "install": true }]
+  }
+]

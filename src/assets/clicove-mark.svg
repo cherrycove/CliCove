@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="72" height="72" viewBox="0 0 72 72" role="img" aria-labelledby="title desc">
+  <title id="title">CliCove</title>
+  <desc id="desc">A white segmented C and centered command prompt on a cobalt tile, with yellow and coral blocks.</desc>
+  <g id="tile">
+    <rect width="72" height="72" rx="12" fill="#305ae8"/>
+    <path d="M54 0H60A12 12 0 0 1 72 12V18H54Z" fill="#fffef9"/>
+    <path d="M58 0H60A12 12 0 0 1 72 12V14H58Z" fill="#e9644b"/>
+  </g>
+  <g id="symbol">
+    <path d="M35 14.023A22 22 0 0 0 14.023 35H25.046A11 11 0 0 1 35 25.046Z" fill="#fffef9"/>
+    <path d="M14.023 37H25.046A11 11 0 0 0 35 46.954V57.977A22 22 0 0 1 14.023 37Z" fill="#fffef9"/>
+    <path d="M38 14.091A22 22 0 0 1 51.556 20.444L43.778 28.222A11 11 0 0 0 38 25.183Z" fill="#f2cb4b"/>
+    <path d="M38 46.817A11 11 0 0 0 43.778 43.778L51.556 51.556A22 22 0 0 1 38 57.909Z" fill="#e9644b"/>
+    <path d="M41 28L54 36L41 44V38L44.25 36L41 34Z" fill="#fffef9"/>
+  </g>
+</svg>

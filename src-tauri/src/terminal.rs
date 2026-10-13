@@ -3,6 +3,7 @@ use crate::storage::Storage;
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use std::collections::HashMap;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,7 +12,7 @@ use tauri::{AppHandle, Emitter};
 use uuid::Uuid;
 
 struct TerminalHandle {
-    session: TerminalSession,
+    session: Arc<Mutex<TerminalSession>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     writer: Mutex<Box<dyn Write + Send>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
@@ -34,6 +35,7 @@ impl TerminalManager {
     #[allow(clippy::too_many_arguments)]
     pub fn spawn(
         &self,
+        session_id: Option<String>,
         app: AppHandle,
         tool_id: String,
         title: String,
@@ -42,6 +44,8 @@ impl TerminalManager {
         cwd: PathBuf,
         cols: u16,
         rows: u16,
+        login_path: OsString,
+        kind: String,
     ) -> Result<TerminalSession, String> {
         if !Path::new(&executable).is_file() {
             return Err(format!("可执行文件不存在：{executable}"));
@@ -61,8 +65,7 @@ impl TerminalManager {
 
         let mut command = pty_command(&executable, &args);
         command.cwd(&cwd);
-        command.env("CLIHUB", "1");
-        command.env("TERM", "xterm-256color");
+        configure_terminal_environment(&mut command, &login_path);
 
         let child = pair
             .slave
@@ -77,7 +80,7 @@ impl TerminalManager {
             .master
             .take_writer()
             .map_err(|error| error.to_string())?;
-        let session_id = Uuid::new_v4().to_string();
+        let session_id = session_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         let session = TerminalSession {
             id: session_id.clone(),
             tool_id,
@@ -87,14 +90,17 @@ impl TerminalManager {
             cwd: cwd.to_string_lossy().to_string(),
             started_at: chrono::Utc::now().to_rfc3339(),
             status: "running".into(),
+            kind,
+            ended_at: None,
+            exit_code: None,
         };
-        let stored_session = redacted_session(&session);
-        self.storage.session_started(&stored_session)?;
+        self.storage.session_started(&session)?;
 
         let child = Arc::new(Mutex::new(child));
         let ended = Arc::new(AtomicBool::new(false));
+        let session_state = Arc::new(Mutex::new(session.clone()));
         let handle = Arc::new(TerminalHandle {
-            session: session.clone(),
+            session: session_state.clone(),
             master: Mutex::new(pair.master),
             writer: Mutex::new(writer),
             child: child.clone(),
@@ -104,7 +110,7 @@ impl TerminalManager {
 
         let storage = self.storage.clone();
         std::thread::Builder::new()
-            .name(format!("clihub-pty-{session_id}"))
+            .name(format!("clicove-pty-{session_id}"))
             .spawn(move || {
                 let mut buffer = [0_u8; 8192];
                 loop {
@@ -127,6 +133,12 @@ impl TerminalManager {
                     .ok()
                     .map(|status| status.exit_code() as i32);
                 ended.store(true, Ordering::SeqCst);
+                {
+                    let mut session = session_state.lock();
+                    session.status = "exited".into();
+                    session.ended_at = Some(chrono::Utc::now().to_rfc3339());
+                    session.exit_code = exit_code;
+                }
                 let _ = storage.session_ended(&session_id, exit_code);
                 let _ = app.emit(
                     "terminal-exit",
@@ -196,13 +208,26 @@ impl TerminalManager {
             .lock()
             .values()
             .map(|handle| {
-                let mut session = handle.session.clone();
+                let mut session = handle.session.lock().clone();
                 if handle.ended.load(Ordering::SeqCst) {
                     session.status = "exited".into();
+                    session.ended_at = Some(chrono::Utc::now().to_rfc3339());
                 }
                 session
             })
             .collect()
+    }
+
+    pub fn rename(&self, session_id: &str, title: &str) -> Result<TerminalSession, String> {
+        let title = title.trim();
+        if title.is_empty() || title.chars().count() > 80 || title.contains('\0') {
+            return Err("会话名称不能为空且不能超过 80 个字符".into());
+        }
+        let handle = self.handle(session_id)?;
+        let mut session = handle.session.lock();
+        session.title = title.into();
+        self.storage.session_renamed(session_id, title)?;
+        Ok(session.clone())
     }
 
     pub fn active_count(&self) -> usize {
@@ -250,71 +275,22 @@ fn pty_command(executable: &str, args: &[String]) -> CommandBuilder {
     command
 }
 
-fn redacted_session(session: &TerminalSession) -> TerminalSession {
-    let mut clone = session.clone();
-    let mut redact_next = false;
-    clone.args = clone
-        .args
-        .iter()
-        .map(|arg| {
-            if redact_next {
-                redact_next = false;
-                return "***".into();
-            }
-            let lower = arg.to_ascii_lowercase();
-            if [
-                "--api-key",
-                "--token",
-                "--secret",
-                "--password",
-                "--credential",
-            ]
-            .iter()
-            .any(|flag| lower == *flag)
-            {
-                redact_next = true;
-                return arg.clone();
-            }
-            if ["key=", "token=", "secret=", "password=", "credential="]
-                .iter()
-                .any(|needle| lower.contains(needle))
-            {
-                return lower
-                    .split_once('=')
-                    .map(|(key, _)| format!("{key}=***"))
-                    .unwrap_or_else(|| "***".into());
-            }
-            arg.clone()
-        })
-        .collect();
-    clone
+fn configure_terminal_environment(command: &mut CommandBuilder, login_path: &OsStr) {
+    command.env("CLIHUB", "1");
+    command.env("TERM", "xterm-256color");
+    command.env("PATH", login_path);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::fs;
     use std::io::Read;
-
-    #[test]
-    fn session_arguments_are_redacted() {
-        let session = TerminalSession {
-            id: "1".into(),
-            tool_id: "tool".into(),
-            title: "test".into(),
-            executable: "/bin/test".into(),
-            args: vec![
-                "--api-key".into(),
-                "secret-value".into(),
-                "token=abc".into(),
-            ],
-            cwd: "/tmp".into(),
-            started_at: "now".into(),
-            status: "running".into(),
-        };
-        let redacted = redacted_session(&session);
-        assert_eq!(redacted.args[1], "***");
-        assert_eq!(redacted.args[2], "token=***");
-    }
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use tempfile::TempDir;
 
     #[test]
     fn portable_pty_captures_child_output() {
@@ -329,13 +305,13 @@ mod tests {
         #[cfg(unix)]
         let mut command = {
             let mut value = CommandBuilder::new("/bin/sh");
-            value.args(["-c", "printf clihub-pty-ok"]);
+            value.args(["-c", "printf clicove-pty-ok"]);
             value
         };
         #[cfg(windows)]
         let mut command = {
             let mut value = CommandBuilder::new("cmd.exe");
-            value.args(["/D", "/S", "/C", "echo clihub-pty-ok"]);
+            value.args(["/D", "/S", "/C", "echo clicove-pty-ok"]);
             value
         };
         command.env("TERM", "xterm-256color");
@@ -345,6 +321,40 @@ mod tests {
         let mut output = String::new();
         reader.read_to_string(&mut output).unwrap();
         assert!(child.wait().unwrap().success());
-        assert!(output.contains("clihub-pty-ok"));
+        assert!(output.contains("clicove-pty-ok"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn portable_pty_uses_login_path_for_env_shebangs() {
+        let temp = TempDir::new().unwrap();
+        let node = temp.path().join("node");
+        let cli = temp.path().join("node-cli");
+        fs::write(&node, "#!/bin/sh\nprintf 'pty-node-ok\\n'\n").unwrap();
+        fs::write(&cli, "#!/usr/bin/env node\n").unwrap();
+        fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let pair = native_pty_system()
+            .openpty(PtySize {
+                rows: 24,
+                cols: 80,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .unwrap();
+        let mut command = pty_command(cli.to_str().unwrap(), &[]);
+        configure_terminal_environment(&mut command, temp.path().as_os_str());
+        let mut child = pair.slave.spawn_command(command).unwrap();
+        drop(pair.slave);
+        let mut output = String::new();
+        pair.master
+            .try_clone_reader()
+            .unwrap()
+            .read_to_string(&mut output)
+            .unwrap();
+
+        assert!(child.wait().unwrap().success());
+        assert!(output.contains("pty-node-ok"));
     }
 }

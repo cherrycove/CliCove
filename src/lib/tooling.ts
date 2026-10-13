@@ -1,4 +1,4 @@
-import type { ToolCategory, ToolRecord } from './types';
+import type { LatestVersionInfo, ToolCategory, ToolRecord } from './types';
 
 export function filterTools(
   tools: ToolRecord[],
@@ -12,6 +12,8 @@ export function filterTools(
       !term ||
       tool.displayName.toLowerCase().includes(term) ||
       tool.aliases.some((alias) => alias.toLowerCase().includes(term)) ||
+      (tool.source.packageName?.toLowerCase().includes(term) ?? false) ||
+      (tool.service?.description.toLowerCase().includes(term) ?? false) ||
       tool.source.label.toLowerCase().includes(term);
     return matchesCategory && matchesQuery;
   });
@@ -24,3 +26,24 @@ export function splitArguments(value: string): string[] {
     .filter(Boolean);
 }
 
+export function resolveToolSelection(visibleTools: ToolRecord[], selectedId: string): string {
+  return visibleTools.some((tool) => tool.id === selectedId)
+    ? selectedId
+    : (visibleTools[0]?.id ?? '');
+}
+
+// Unsupported is a result of the last attempt, not a permanent capability lock.
+export function canQueryLatest(checking: boolean, checkingAll: boolean, available = true): boolean {
+  return available && !checking && !checkingAll;
+}
+
+export function indexLatestChecks(
+  checks: LatestVersionInfo[],
+): Map<string, LatestVersionInfo> {
+  const index = new Map<string, LatestVersionInfo>();
+  for (const check of checks) {
+    // Results are newest-first; keep the first entry for each target.
+    if (!index.has(check.targetId)) index.set(check.targetId, check);
+  }
+  return index;
+}

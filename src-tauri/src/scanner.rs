@@ -1,11 +1,14 @@
-use crate::adapters::{builtin_adapters, expand_home, find_adapter};
-use crate::models::{AdapterManifest, ToolCapabilities, ToolCategory, ToolRecord, ToolSource};
+use crate::adapters::{builtin_adapters, config_preview_fields, expand_home, find_adapter};
+use crate::models::{
+    AdapterManifest, RuntimeDependency, ToolCapabilities, ToolCategory, ToolRecord, ToolSource,
+};
+use crate::service_catalog::find_service;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::env;
-#[cfg(windows)]
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -16,8 +19,9 @@ use wait_timeout::ChildExt;
 use std::os::unix::fs::PermissionsExt;
 
 pub struct ToolRegistry {
-    adapters: Vec<AdapterManifest>,
+    adapters: RwLock<Vec<AdapterManifest>>,
     tools: RwLock<HashMap<String, ToolRecord>>,
+    login_path: RwLock<OsString>,
 }
 
 impl Default for ToolRegistry {
@@ -29,14 +33,17 @@ impl Default for ToolRegistry {
 impl ToolRegistry {
     pub fn new(adapters: Vec<AdapterManifest>) -> Self {
         Self {
-            adapters,
+            adapters: RwLock::new(adapters),
             tools: RwLock::new(HashMap::new()),
+            login_path: RwLock::new(env::var_os("PATH").unwrap_or_default()),
         }
     }
     pub fn scan(&self, show_system: bool, show_all_executables: bool) -> Vec<ToolRecord> {
+        let login_path = resolve_login_path();
+        *self.login_path.write() = login_path.clone();
         let homebrew_requested = homebrew_requested_packages();
         let mut grouped: BTreeMap<String, (PathBuf, Vec<String>, bool)> = BTreeMap::new();
-        for directory in login_path_directories() {
+        for directory in login_path_directories(&login_path) {
             let system_directory = is_system_directory(&directory);
             if system_directory && !show_system {
                 continue;
@@ -68,7 +75,13 @@ impl ToolRegistry {
             .into_iter()
             .map(|(_, (canonical, mut aliases, is_system))| {
                 aliases.sort();
-                self.make_record(canonical, aliases, is_system, &homebrew_requested)
+                self.make_record(
+                    canonical,
+                    aliases,
+                    is_system,
+                    &homebrew_requested,
+                    &login_path,
+                )
             })
             .collect();
 
@@ -103,6 +116,10 @@ impl ToolRegistry {
         self.tools.read().get(id).cloned()
     }
 
+    pub fn all(&self) -> Vec<ToolRecord> {
+        self.tools.read().values().cloned().collect()
+    }
+
     pub fn find_by_name(&self, name: &str) -> Option<ToolRecord> {
         self.tools
             .read()
@@ -111,11 +128,32 @@ impl ToolRegistry {
             .cloned()
     }
 
+    pub fn execution_path(&self) -> OsString {
+        self.login_path.read().clone()
+    }
+
+    pub fn replace_adapters(&self, adapters: Vec<AdapterManifest>) {
+        *self.adapters.write() = adapters;
+        self.tools.write().clear();
+    }
+
+    pub fn resolve_executable(&self, name: &str) -> Option<String> {
+        self.find_by_name(name)
+            .map(|record| record.executable)
+            .or_else(|| {
+                find_executable_in_path(name, &self.login_path.read())
+                    .map(|path| path.to_string_lossy().to_string())
+            })
+    }
+
     pub fn adapter_for(&self, tool: &ToolRecord) -> Option<AdapterManifest> {
-        tool.adapter_id
-            .as_ref()
-            .and_then(|id| self.adapters.iter().find(|adapter| &adapter.id == id))
-            .cloned()
+        tool.adapter_id.as_ref().and_then(|id| {
+            self.adapters
+                .read()
+                .iter()
+                .find(|adapter| &adapter.id == id)
+                .cloned()
+        })
     }
 
     pub fn probe(&self, id: &str) -> Result<String, String> {
@@ -133,7 +171,12 @@ impl ToolRegistry {
                 ]
             });
         for args in commands {
-            if let Ok(output) = run_probe(&tool.executable, &args, Duration::from_secs(3)) {
+            if let Ok(output) = run_probe(
+                &tool.executable,
+                &args,
+                Duration::from_secs(3),
+                &self.login_path.read(),
+            ) {
                 if !output.trim().is_empty() {
                     let version = first_lines(&output, 3);
                     if let Some(record) = self.tools.write().get_mut(id) {
@@ -152,8 +195,15 @@ impl ToolRegistry {
         aliases: Vec<String>,
         is_system: bool,
         homebrew_requested: &HashSet<String>,
+        login_path: &OsStr,
     ) -> ToolRecord {
-        let adapter = find_adapter(&self.adapters, &aliases);
+        let mut source = detect_source(&canonical, is_system);
+        let adapters = self.adapters.read();
+        let adapter = find_adapter(&adapters, &aliases, &canonical, &source);
+        let service = find_service(&aliases, &source, adapter.map(|item| item.id.as_str()));
+        if service.is_some() && source.kind == "npm" {
+            source.package_version = npm_package_version(&canonical);
+        }
         let primary_name = adapter
             .and_then(|item| {
                 item.names
@@ -161,22 +211,17 @@ impl ToolRegistry {
                     .find(|name| aliases.iter().any(|alias| alias == *name))
             })
             .cloned()
+            .or_else(|| service.and_then(|item| {
+                item.commands.iter().find(|name| aliases.contains(name)).cloned()
+            }))
             .or_else(|| aliases.first().cloned())
             .unwrap_or_else(|| "unknown".into());
-        let source = detect_source(&canonical, is_system);
         let category = adapter
             .map(|item| item.category.clone())
+            .or_else(|| service.map(|item| item.category.clone()))
             .unwrap_or_else(|| infer_category(&aliases, is_system));
         let executable = canonical.to_string_lossy().to_string();
         let id = Uuid::new_v5(&Uuid::NAMESPACE_URL, executable.as_bytes()).to_string();
-        let version = adapter.and_then(|item| {
-            item.version_commands.iter().find_map(|args| {
-                run_probe(&executable, args, Duration::from_secs(3))
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-                    .map(|value| first_lines(&value, 3))
-            })
-        });
         let config_paths = adapter
             .map(|item| {
                 item.config_paths
@@ -185,10 +230,48 @@ impl ToolRegistry {
                     .collect()
             })
             .unwrap_or_default();
+        let config_preview_available = adapter
+            .map(|item| {
+                (0..item.config_paths.len())
+                    .map(|index| config_preview_fields(&item.id, index).is_some())
+                    .collect()
+            })
+            .unwrap_or_default();
+        let runtime_dependencies: Vec<RuntimeDependency> = adapter
+            .map(|item| &item.dependencies)
+            .or_else(|| service.map(|item| &item.dependencies))
+            .map(|dependencies| {
+                dependencies
+                    .iter()
+                    .map(|name| {
+                        let dependency = find_executable_in_path(name, login_path);
+                        RuntimeDependency {
+                            name: name.clone(),
+                            executable: dependency
+                                .as_ref()
+                                .map(|path| path.to_string_lossy().to_string()),
+                            available: dependency.is_some(),
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let dependencies_available = runtime_dependencies
+            .iter()
+            .all(|dependency| dependency.available);
+        let version = adapter.filter(|_| dependencies_available).and_then(|item| {
+            item.version_commands.iter().find_map(|args| {
+                run_probe(&executable, args, Duration::from_secs(3), login_path)
+                    .ok()
+                    .filter(|value| !value.trim().is_empty())
+                    .map(|value| first_lines(&value, 3))
+            })
+        }).or_else(|| service.and(source.package_version.clone()));
         let capabilities = ToolCapabilities {
             terminal: true,
             version_probe: true,
-            update: adapter.and_then(|item| item.update.as_ref()).is_some()
+            update: (source.kind != "application"
+                && adapter.and_then(|item| item.update.as_ref()).is_some())
                 || source.kind == "npm"
                 || (source.kind == "homebrew"
                     && source
@@ -207,6 +290,7 @@ impl ToolRegistry {
             name: primary_name,
             display_name: adapter
                 .map(|item| item.display_name.clone())
+                .or_else(|| service.map(|item| item.display_name.clone()))
                 .unwrap_or_else(|| humanize_name(&aliases[0])),
             executable,
             canonical_path: canonical.to_string_lossy().to_string(),
@@ -217,8 +301,11 @@ impl ToolRegistry {
             category,
             is_system,
             adapter_id: adapter.map(|item| item.id.clone()),
+            service: service.map(|item| item.identity()),
             capabilities,
             config_paths,
+            config_preview_available,
+            runtime_dependencies,
         }
     }
 }
@@ -280,17 +367,32 @@ fn product_records(
             }
             product.related_commands = related;
             if let Some(package) = package.as_deref() {
-                if product.adapter_id.is_none() {
+                if product.adapter_id.is_none() && product.service.is_none() {
                     product.display_name = package_display_name(package, &product.display_name);
                 }
             }
+            product.id = product_id(&product);
             Some(product)
         })
         .collect()
 }
 
+fn product_id(tool: &ToolRecord) -> String {
+    let identity = if let Some(adapter) = tool.adapter_id.as_deref() {
+        format!("adapter:{adapter}")
+    } else if let Some(package) = tool.source.package_name.as_deref() {
+        format!(
+            "package:{}:{package}:{}",
+            tool.source.kind, tool.source.scope
+        )
+    } else {
+        format!("command:{}", tool.canonical_path)
+    };
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, identity.as_bytes()).to_string()
+}
+
 fn product_rank(tool: &ToolRecord, package: Option<&str>) -> (u8, usize, String) {
-    let rank = if tool.adapter_id.is_some() {
+    let rank = if tool.adapter_id.is_some() || tool.service.is_some() {
         0
     } else if preferred_command_for_package(package)
         .map(|preferred| tool.aliases.iter().any(|alias| alias == preferred))
@@ -408,10 +510,10 @@ fn package_display_name(package: &str, fallback: &str) -> String {
     }
 }
 
-fn login_path_directories() -> Vec<PathBuf> {
+fn resolve_login_path() -> OsString {
     let inherited = env::var_os("PATH").unwrap_or_default();
     #[cfg(unix)]
-    let resolved = {
+    {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         if Path::new(&shell).is_absolute() && Path::new(&shell).exists() {
             Command::new(shell)
@@ -431,17 +533,59 @@ fn login_path_directories() -> Vec<PathBuf> {
         } else {
             inherited
         }
-    };
+    }
     #[cfg(windows)]
-    let resolved = inherited;
+    {
+        inherited
+    }
+}
 
+fn login_path_directories(resolved: &OsStr) -> Vec<PathBuf> {
     let mut directories = Vec::new();
-    for path in env::split_paths(&resolved) {
+    for path in env::split_paths(resolved) {
         if path.is_dir() && !is_transient_directory(&path) && !directories.contains(&path) {
             directories.push(path);
         }
     }
     directories
+}
+
+fn find_executable_in_path(name: &str, resolved: &OsStr) -> Option<PathBuf> {
+    if name.is_empty()
+        || name.contains(['/', '\\'])
+        || !name
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || ".@+_-".contains(character))
+    {
+        return None;
+    }
+    #[cfg(windows)]
+    let candidates: Vec<String> = {
+        let path = Path::new(name);
+        if path.extension().is_some() {
+            vec![name.to_string()]
+        } else {
+            env::var("PATHEXT")
+                .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into())
+                .split(';')
+                .filter(|extension| !extension.is_empty())
+                .map(|extension| format!("{name}{}", extension.to_ascii_lowercase()))
+                .chain(std::iter::once(name.to_string()))
+                .collect()
+        }
+    };
+    #[cfg(not(windows))]
+    let candidates = vec![name.to_string()];
+
+    for directory in login_path_directories(resolved) {
+        for candidate in &candidates {
+            let path = directory.join(candidate);
+            if is_executable(&path) {
+                return Some(fs::canonicalize(&path).unwrap_or(path));
+            }
+        }
+    }
+    None
 }
 
 fn is_transient_directory(path: &Path) -> bool {
@@ -573,21 +717,11 @@ fn detect_source(path: &Path, is_system: bool) -> ToolSource {
             scope: "global".into(),
         };
     }
-    if let Some(index) = parts.iter().position(|part| *part == "node_modules") {
-        let package_name = parts.get(index + 1).map(|value| {
-            if value.starts_with('@') {
-                parts
-                    .get(index + 2)
-                    .map(|child| format!("{value}/{child}"))
-                    .unwrap_or_else(|| (*value).into())
-            } else {
-                (*value).into()
-            }
-        });
+    if let Some((_, package_name)) = npm_package_root(path) {
         return ToolSource {
             kind: "npm".into(),
             label: "Global npm".into(),
-            package_name,
+            package_name: Some(package_name),
             package_version: None,
             scope: "global".into(),
         };
@@ -623,6 +757,53 @@ fn detect_source(path: &Path, is_system: bool) -> ToolSource {
     }
 }
 
+// Use the nearest package boundary: a nested dependency must not inherit its parent's identity.
+fn npm_package_root(path: &Path) -> Option<(&Path, String)> {
+    for root in path.parent()?.ancestors() {
+        let name = root.file_name()?.to_str()?;
+        let parent = root.parent()?;
+        let parent_name = parent.file_name().and_then(OsStr::to_str).unwrap_or("");
+        if name.starts_with('.') || name.starts_with('@') {
+            continue;
+        }
+        if parent_name == "node_modules" {
+            return Some((root, name.into()));
+        }
+        if parent_name.starts_with('@')
+            && parent.parent().and_then(Path::file_name) == Some(OsStr::new("node_modules"))
+        {
+            return Some((root, format!("{parent_name}/{name}")));
+        }
+    }
+    None
+}
+
+fn npm_package_version(path: &Path) -> Option<String> {
+    let (root, expected_name) = npm_package_root(path)?;
+    // Read metadata only, never execute an unadapted CLI during discovery.
+    let manifest = root.join("package.json");
+    if !fs::metadata(&manifest).ok()?.is_file() {
+        return None;
+    }
+    let file = fs::File::open(manifest).ok()?;
+    if !file.metadata().ok()?.is_file() {
+        return None;
+    }
+    let mut bytes = Vec::new();
+    file.take(128 * 1024 + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() > 128 * 1024 {
+        return None;
+    }
+    let value: serde_json::Value = serde_json::from_slice(&bytes).ok()?;
+    if value.get("name")?.as_str()? != expected_name {
+        return None;
+    }
+    let version = value.get("version")?.as_str()?;
+    (!version.is_empty() && version.len() <= 128
+        && version.chars().all(|ch| ch.is_ascii_alphanumeric() || ".+-".contains(ch)))
+        .then(|| version.to_string())
+}
+
 fn infer_category(names: &[String], is_system: bool) -> ToolCategory {
     if is_system {
         return ToolCategory::System;
@@ -637,19 +818,14 @@ fn infer_category(names: &[String], is_system: bool) -> ToolCategory {
         "aws",
         "aws-vault",
         "cloudflared",
-        "wrangler",
         "gcloud",
         "az",
         "aliyun",
         "hcloud",
-        "vercel",
-        "netlify",
-        "firebase",
         "flyctl",
         "doctl",
         "heroku",
         "supabase",
-        "stripe",
     ]) {
         ToolCategory::CloudService
     } else if has(&[
@@ -713,9 +889,15 @@ fn humanize_name(name: &str) -> String {
         .join(" ")
 }
 
-fn run_probe(executable: &str, args: &[String], timeout: Duration) -> Result<String, String> {
+pub(crate) fn run_probe(
+    executable: &str,
+    args: &[String],
+    timeout: Duration,
+    login_path: &OsStr,
+) -> Result<String, String> {
     let mut child = Command::new(executable)
         .args(args)
+        .env("PATH", login_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -734,10 +916,10 @@ fn run_probe(executable: &str, args: &[String], timeout: Duration) -> Result<Str
     if value.trim().is_empty() {
         value = String::from_utf8_lossy(&output.stderr).to_string();
     }
-    if status.is_none() {
-        Err("version probe timed out".into())
-    } else {
-        Ok(value)
+    match status {
+        None => Err("version probe timed out".into()),
+        Some(status) if !status.success() => Err(first_lines(&value, 3)),
+        Some(_) => Ok(value),
     }
 }
 
@@ -798,6 +980,7 @@ mod tests {
             category,
             is_system: false,
             adapter_id: adapter_id.map(str::to_string),
+            service: None,
             capabilities: ToolCapabilities {
                 terminal: true,
                 version_probe: true,
@@ -807,6 +990,8 @@ mod tests {
                 config: false,
             },
             config_paths: Vec::new(),
+            config_preview_available: Vec::new(),
+            runtime_dependencies: Vec::new(),
         }
     }
 
@@ -819,6 +1004,112 @@ mod tests {
         assert_eq!(source.kind, "homebrew");
         assert_eq!(source.package_name.as_deref(), Some("ripgrep"));
         assert_eq!(source.package_version.as_deref(), Some("15.2.0"));
+    }
+
+    #[test]
+    fn service_catalog_discovers_cloud_clis_without_action_adapters() {
+        let registry = ToolRegistry::new(Vec::new());
+        let requested = HashSet::new();
+        let cases = [
+            ("wrangler", "wrangler", "wrangler", "Cloudflare Wrangler"),
+            ("vercel", "vercel", "vercel", "Vercel CLI"),
+            ("netlify", "netlify-cli", "netlify", "Netlify CLI"),
+            ("firebase", "firebase-tools", "firebase", "Firebase CLI"),
+            ("ve", "@volcengine/cli", "volcengine", "Volcengine CLI"),
+            ("stripe", "stripe", "stripe", "Stripe CLI"),
+        ];
+        for (name, package, id, display_name) in cases {
+            let path = if name == "stripe" {
+                PathBuf::from("/opt/homebrew/Cellar/stripe/1.2.3/bin/stripe")
+            } else {
+                PathBuf::from(format!("/test/lib/node_modules/{package}/bin/{name}"))
+            };
+            let record = registry.make_record(path.clone(), vec![name.into()], false, &requested, OsStr::new(""));
+            let helper = registry.make_record(path.with_file_name("helper"), vec!["helper".into()], false, &requested, OsStr::new(""));
+            let products: Vec<_> = product_records(vec![helper, record], &requested)
+                .into_iter().filter(is_capability_cli).collect();
+            assert_eq!(products.len(), 1, "{name}");
+            let tool = &products[0];
+            assert_eq!(tool.display_name, display_name);
+            assert_eq!(tool.name, name);
+            assert_eq!(tool.service.as_ref().unwrap().id, id);
+            assert!(tool.adapter_id.is_none());
+            assert!(tool.capabilities.terminal && tool.capabilities.version_probe);
+            assert!(!tool.capabilities.auth && !tool.capabilities.diagnose && !tool.capabilities.config);
+            assert!(tool.config_paths.is_empty());
+            assert_eq!(tool.related_commands.len(), 2);
+            assert_eq!(tool.aliases, vec![name]);
+            if name == "ve" {
+                assert!(tool.runtime_dependencies.is_empty(), "the ve binary is not a Node runtime");
+            }
+        }
+    }
+
+    #[test]
+    fn directly_installed_runtimes_unknown_packages_and_spoofed_names_stay_excluded() {
+        let registry = ToolRegistry::new(Vec::new());
+        let mut records = Vec::new();
+        let requested = ["node", "python@3.13", "openjdk", "helm", "docker", "kubectl"]
+            .map(str::to_string).into_iter().collect();
+        for (package, name) in [("node", "node"), ("python@3.13", "python3"), ("openjdk", "java"),
+            ("helm", "helm"), ("docker", "docker"), ("kubectl", "kubectl")]
+        {
+            records.push(registry.make_record(format!("/opt/homebrew/Cellar/{package}/1/bin/{name}").into(),
+                vec![name.into()], false, &requested, OsStr::new("")));
+        }
+        for name in ["npm", "npx", "ve", "wrangler", "firebase", "stripe", "unknown-tool"] {
+            records.push(registry.make_record(format!("/test/node_modules/unrelated/bin/{name}").into(),
+                vec![name.into()], false, &requested, OsStr::new("")));
+        }
+        let raw_count = records.len();
+        assert!(raw_count > 10); // These remain accessible through the advanced raw view.
+        assert!(product_records(records, &requested).iter().all(|tool| !is_capability_cli(tool)));
+    }
+
+    #[test]
+    fn catalog_identity_keeps_existing_product_ids_and_cache_compatibility() {
+        let mut tool = test_tool("firebase", "npm", Some("firebase-tools"), ToolCategory::CloudService, None);
+        let old_id = product_id(&tool);
+        let mut legacy = serde_json::to_value(&tool).unwrap();
+        legacy.as_object_mut().unwrap().remove("service");
+        let restored: ToolRecord = serde_json::from_value(legacy).unwrap();
+        assert!(restored.service.is_none());
+        tool.service = find_service(&tool.aliases, &tool.source, None).map(|service| service.identity());
+        assert_eq!(old_id, product_id(&tool));
+        let restored: ToolRecord = serde_json::from_str(&serde_json::to_string(&tool).unwrap()).unwrap();
+        assert_eq!(restored, tool);
+    }
+
+    #[test]
+    fn npm_identity_uses_nearest_package_not_outer_dependency_owner() {
+        let source = detect_source(Path::new("/test/node_modules/@volcengine/cli/node_modules/unrelated/bin/ve"), false);
+        assert_eq!(source.package_name.as_deref(), Some("unrelated"));
+        assert!(find_service(&["ve".into()], &source, None).is_none());
+        assert_eq!(detect_source(Path::new("/test/node_modules/@volcengine/cli/bin/ve"), false)
+            .package_name.as_deref(), Some("@volcengine/cli"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn catalog_scan_reads_bounded_version_metadata_without_executing_cli() {
+        let temp = TempDir::new().unwrap();
+        let root = temp.path().join("node_modules/@volcengine/cli");
+        fs::create_dir_all(root.join("bin")).unwrap();
+        let executable = root.join("bin/ve");
+        let marker = root.join("executed");
+        fs::write(&executable, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).unwrap();
+        fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(root.join("package.json"), r#"{"name":"@volcengine/cli","version":"1.2.3"}"#).unwrap();
+        let registry = ToolRegistry::new(Vec::new());
+        let tool = registry.make_record(executable.clone(), vec!["ve".into()], false, &HashSet::new(), OsStr::new("/usr/bin:/bin"));
+        assert_eq!(tool.version.as_deref(), Some("1.2.3"));
+        assert!(!marker.exists());
+        fs::write(root.join("package.json"), r#"{"name":"unrelated","version":"9.9.9"}"#).unwrap();
+        assert!(npm_package_version(&executable).is_none());
+        fs::write(root.join("package.json"), " ".repeat(128 * 1024 + 1)).unwrap();
+        assert!(npm_package_version(&executable).is_none());
+        fs::write(root.join("package.json"), "invalid JSON").unwrap();
+        assert!(npm_package_version(&executable).is_none());
     }
 
     #[test]
@@ -930,6 +1221,90 @@ mod tests {
 
         assert!(capability_tools.iter().all(is_capability_cli));
         assert!(excluded_tools.iter().all(|tool| !is_capability_cli(tool)));
+    }
+
+    #[test]
+    fn ambiguous_aliases_require_identity_evidence() {
+        let adapters = builtin_adapters();
+        let source = ToolSource {
+            kind: "application".into(),
+            label: "Desktop application".into(),
+            package_name: None,
+            package_version: None,
+            scope: "global".into(),
+        };
+
+        assert!(find_adapter(
+            &adapters,
+            &["code".into()],
+            Path::new("/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code"),
+            &source,
+        )
+        .is_none());
+        assert_eq!(
+            find_adapter(
+                &adapters,
+                &["code".into()],
+                Path::new("/Applications/Cursor.app/Contents/Resources/app/bin/code"),
+                &source,
+            )
+            .map(|adapter| adapter.id.as_str()),
+            Some("cursor")
+        );
+        assert!(find_adapter(
+            &adapters,
+            &["agent".into()],
+            Path::new("/usr/local/bin/agent"),
+            &source,
+        )
+        .is_none());
+        assert_eq!(
+            find_adapter(
+                &adapters,
+                &["agent".into()],
+                Path::new("/Users/example/.grok/downloads/grok-1.0.0"),
+                &source,
+            )
+            .map(|adapter| adapter.id.as_str()),
+            Some("grok")
+        );
+    }
+
+    #[test]
+    fn package_product_id_survives_versioned_path_changes() {
+        let mut first = test_tool(
+            "aws",
+            "homebrew",
+            Some("awscli"),
+            ToolCategory::CloudService,
+            Some("aws"),
+        );
+        first.canonical_path = "/opt/homebrew/Cellar/awscli/2.35.0/bin/aws".into();
+        let mut second = first.clone();
+        second.canonical_path = "/opt/homebrew/Cellar/awscli/2.36.0/bin/aws".into();
+
+        assert_eq!(product_id(&first), product_id(&second));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn version_probe_uses_resolved_login_path_for_env_shebangs() {
+        let temp = TempDir::new().unwrap();
+        let node = temp.path().join("node");
+        let cli = temp.path().join("example-cli");
+        fs::write(&node, "#!/bin/sh\nprintf 'example 1.2.3\\n'\n").unwrap();
+        fs::write(&cli, "#!/usr/bin/env node\n").unwrap();
+        fs::set_permissions(&node, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&cli, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let output = run_probe(
+            cli.to_str().unwrap(),
+            &[],
+            Duration::from_secs(1),
+            temp.path().as_os_str(),
+        )
+        .unwrap();
+        assert_eq!(output.trim(), "example 1.2.3");
     }
 
     #[test]
