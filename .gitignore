@@ -7,3 +7,15 @@ src-tauri/gen/schemas/
 .idea/
 .vscode/
 
+# Local credentials, signing material, and runtime data
+.env
+.env.*
+!.env.example
+*.p12
+*.pfx
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+

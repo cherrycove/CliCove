@@ -3,6 +3,7 @@ name = "clihub"
 version = "0.2.0"
 description = "A lightweight local console for discovering and managing command-line tools"
 authors = ["CLIHub"]
+license = "MIT"
 edition = "2021"
 
 [lib]
