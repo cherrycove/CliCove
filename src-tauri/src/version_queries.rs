@@ -1,6 +1,7 @@
 //! Reviewed read-only release queries. Never infer `update --check` from a name:
 //! some updaters ignore unknown flags or install while checking.
 use crate::models::ToolRecord;
+use crate::process::background_command;
 use crate::scanner::ToolRegistry;
 use reqwest::blocking::Client;
 use serde::Deserialize;
@@ -8,7 +9,7 @@ use std::ffi::OsStr;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 use wait_timeout::ChildExt;
@@ -271,7 +272,7 @@ fn command_output(
     timeout: Duration,
 ) -> Result<(String, String), String> {
     let deadline = Instant::now() + timeout;
-    let mut child = Command::new(executable)
+    let mut child = background_command(executable)
         .args(args)
         .env("PATH", path)
         .env("LC_ALL", "C")

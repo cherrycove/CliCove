@@ -3,6 +3,7 @@ mod background;
 mod commands;
 mod health;
 mod models;
+mod process;
 mod resources;
 mod scanner;
 mod service_catalog;

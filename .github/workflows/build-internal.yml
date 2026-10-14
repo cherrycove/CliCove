@@ -27,6 +27,18 @@ jobs:
       - run: npm run tauri build -- --bundles ${{ matrix.bundles }}
         env:
           APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-14' && '-' || '' }}
+      - name: Verify Windows background commands
+        if: runner.os == 'Windows'
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib process::tests
+      - name: Verify Windows application subsystem
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bytes = [IO.File]::ReadAllBytes('src-tauri/target/release/clicove.exe')
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3c)
+          $subsystem = [BitConverter]::ToUInt16($bytes, $peOffset + 24 + 68)
+          if ($subsystem -ne 2) { throw "Expected Windows GUI subsystem (2), got $subsystem" }
+          Write-Host 'PASS: CliCove is a Windows GUI application without a startup console'
       - uses: actions/upload-artifact@v4
         with:
           name: CliCove-${{ matrix.artifact }}

@@ -1,11 +1,12 @@
 use crate::models::{
     AuthenticationStatus, DiagnosticCheck, DiagnosticReport, StatusField, ToolRecord,
 };
+use crate::process::background_command;
 use crate::AppState;
 use serde_json::Value;
 use std::ffi::OsStr;
 use std::path::Path;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager, State};
 use wait_timeout::ChildExt;
@@ -462,7 +463,7 @@ fn run_status_command(
     args: &[String],
     login_path: &OsStr,
 ) -> Result<CommandResult, String> {
-    let mut child = Command::new(executable)
+    let mut child = background_command(executable)
         .args(args)
         .env("PATH", login_path)
         .env("NO_COLOR", "1")

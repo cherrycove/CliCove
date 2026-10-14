@@ -2,6 +2,7 @@ use crate::adapters::{builtin_adapters, config_preview_fields, expand_home, find
 use crate::models::{
     AdapterManifest, RuntimeDependency, ToolCapabilities, ToolCategory, ToolRecord, ToolSource,
 };
+use crate::process::background_command;
 use crate::service_catalog::find_service;
 use parking_lot::RwLock;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -10,7 +11,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 use uuid::Uuid;
 use wait_timeout::ChildExt;
@@ -516,7 +517,7 @@ fn resolve_login_path() -> OsString {
     {
         let shell = env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
         if Path::new(&shell).is_absolute() && Path::new(&shell).exists() {
-            Command::new(shell)
+            background_command(shell)
                 .args(["-lic", "printf '\\n__CLIHUB_PATH__%s\\n' \"$PATH\""])
                 .stdout(Stdio::piped())
                 .stderr(Stdio::null())
@@ -604,7 +605,7 @@ fn homebrew_requested_packages() -> HashSet<String> {
         .iter()
         .find(|path| Path::new(path).is_file())
         .and_then(|path| {
-            Command::new(path)
+            background_command(path)
                 .args(["info", "--json=v2", "--installed"])
                 .stdin(Stdio::null())
                 .stderr(Stdio::null())
@@ -895,7 +896,7 @@ pub(crate) fn run_probe(
     timeout: Duration,
     login_path: &OsStr,
 ) -> Result<String, String> {
-    let mut child = Command::new(executable)
+    let mut child = background_command(executable)
         .args(args)
         .env("PATH", login_path)
         .stdin(Stdio::null())
