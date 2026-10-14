@@ -24,9 +24,13 @@ try {
     if ($principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator)) {
         throw 'The test must run without administrator privileges'
     }
-    $env:USERPROFILE = [Environment]::GetFolderPath('UserProfile')
-    $env:LOCALAPPDATA = [Environment]::GetFolderPath('LocalApplicationData')
-    $env:APPDATA = [Environment]::GetFolderPath('ApplicationData')
+    $profileKey = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\' + $identity.User.Value
+    $env:USERPROFILE = [Environment]::ExpandEnvironmentVariables((Get-ItemProperty $profileKey).ProfileImagePath)
+    $env:USERNAME = $identity.Name.Split('\')[-1]
+    $env:HOMEDRIVE = Split-Path $env:USERPROFILE -Qualifier
+    $env:HOMEPATH = $env:USERPROFILE.Substring($env:HOMEDRIVE.Length)
+    $env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData\Local'
+    $env:APPDATA = Join-Path $env:USERPROFILE 'AppData\Roaming'
     $env:TEMP = Join-Path $env:LOCALAPPDATA 'Temp'
     $env:TMP = $env:TEMP
     $env:RUNNER_TEMP = $env:TEMP
@@ -35,7 +39,7 @@ try {
     & (Join-Path $PSScriptRoot 'test-windows-installer.ps1') -ArtifactDirectory (Join-Path $PSScriptRoot 'installers')
     exit 0
 } catch {
-    Write-Error $_
+    Write-Error $_ -ErrorAction Continue
     exit 1
 }
 '@ | Set-Content (Join-Path $root 'run.ps1')
