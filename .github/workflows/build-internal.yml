@@ -60,3 +60,6 @@ jobs:
       - name: Check archive and install with default and isolated temporary directories
         shell: pwsh
         run: ./scripts/test-windows-installer.ps1 -ArtifactDirectory installers
+      - name: Install and uninstall as a standard Windows user
+        shell: pwsh
+        run: ./scripts/test-windows-standard-user.ps1 -ArtifactDirectory installers

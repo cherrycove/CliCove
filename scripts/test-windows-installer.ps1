@@ -26,6 +26,9 @@ function Invoke-Installer([string]$File, [string]$Arguments) {
 $installers = @(Get-ChildItem $ArtifactDirectory -Recurse -Filter '*-setup.exe')
 if ($installers.Count -ne 1) { throw 'Expected exactly one NSIS installer' }
 $installer = $installers[0]
+$identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [System.Security.Principal.WindowsPrincipal]::new($identity)
+Write-Host "Account: $($identity.Name); Administrator: $($principal.IsInRole([System.Security.Principal.WindowsBuiltInRole]::Administrator))"
 Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, BuildNumber | Format-List
 Get-FileHash $installer.FullName -Algorithm SHA256 | Format-List
 Get-AuthenticodeSignature $installer.FullName | Select-Object Status, StatusMessage | Format-List
