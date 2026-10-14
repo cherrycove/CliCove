@@ -1055,22 +1055,24 @@
       </div>
 
       <div class="tool-layout">
-        <section bind:this={toolListElement} class="tool-list" aria-label="CLI 工具列表">
+        <section class="tool-list" aria-label="CLI 工具列表">
           <div class="tool-list-head"><div><span>{category === 'all' ? '本机能力目录' : categoryNames[category]}</span><small>{activeCategoryDescription}</small></div><em>{filtered.length}</em></div>
-          {#if scanning && tools.length === 0}
-            <div class="loading-list" role="status"><BlockLoader size={56} /><strong>正在扫描本机 CLI</strong><p>正在识别命令、安装来源与服务能力…</p></div>
-          {:else if filtered.length === 0}
-            <div class="empty"><b>未找到匹配的能力 CLI</b><span>调整搜索条件，或在设置中启用高级全量视图</span></div>
-          {:else}
-            {#each filtered as tool (tool.id)}
-              <button aria-current={tool.id === selectedId ? 'true' : undefined} class:selected={tool.id === selectedId} class="tool-row" on:click={() => selectTool(tool.id)}>
-                <ResourceMark resource={tool} />
-                <span class="tool-main"><strong>{tool.displayName}</strong><span class="tool-subline"><small>{tool.aliases.join(' · ')}</small><span class="category-tag" data-category={tool.category}><i></i>{categoryShortNames[tool.category]}</span></span></span>
-                <span class="tool-meta"><em class:dependency-error={!runtimeReady(tool)}>{runtimeReady(tool) ? (tool.version?.split(' · ')[0] ?? '未探测') : `缺少 ${missingDependencies(tool).map((item) => item.name).join(', ')}`}</em><small>{sourceLabel(tool.source)}</small></span>
-                <span class="chevron"><Icon name="chevron-right" size={15} /></span>
-              </button>
-            {/each}
-          {/if}
+          <div bind:this={toolListElement} class="tool-list-scroll">
+            {#if scanning && tools.length === 0}
+              <div class="loading-list" role="status"><BlockLoader size={56} /><strong>正在扫描本机 CLI</strong><p>正在识别命令、安装来源与服务能力…</p></div>
+            {:else if filtered.length === 0}
+              <div class="empty"><b>未找到匹配的能力 CLI</b><span>调整搜索条件，或在设置中启用高级全量视图</span></div>
+            {:else}
+              {#each filtered as tool (tool.id)}
+                <button aria-current={tool.id === selectedId ? 'true' : undefined} class:selected={tool.id === selectedId} class="tool-row" on:click={() => selectTool(tool.id)}>
+                  <ResourceMark resource={tool} />
+                  <span class="tool-main"><strong>{tool.displayName}</strong><span class="tool-subline"><small>{tool.aliases.join(' · ')}</small><span class="category-tag" data-category={tool.category}><i></i>{categoryShortNames[tool.category]}</span></span></span>
+                  <span class="tool-meta"><em class:dependency-error={!runtimeReady(tool)}>{runtimeReady(tool) ? (tool.version?.split(' · ')[0] ?? '未探测') : `缺少 ${missingDependencies(tool).map((item) => item.name).join(', ')}`}</em><small>{sourceLabel(tool.source)}</small></span>
+                  <span class="chevron"><Icon name="chevron-right" size={15} /></span>
+                </button>
+              {/each}
+            {/if}
+          </div>
         </section>
 
         <aside class="detail-panel" bind:this={detailPanelElement}>
