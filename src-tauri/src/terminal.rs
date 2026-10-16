@@ -49,7 +49,10 @@ impl TerminalManager {
         login_path: OsString,
         kind: String,
     ) -> Result<TerminalSession, String> {
-        let _gate = self.spawn_gate.lock();
+        let _gate = self
+            .spawn_gate
+            .try_lock()
+            .ok_or_else(|| "正在启动终端或安装应用更新，请稍后再试。".to_string())?;
         if !Path::new(&executable).is_file() {
             return Err(format!("可执行文件不存在：{executable}"));
         }

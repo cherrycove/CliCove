@@ -143,7 +143,9 @@ pub async fn check_app_update(
         .patch_update_preferences(|prefs| prefs.last_checked = Some(now))?;
     let offered = update
         .as_ref()
-        .filter(|update| prefs.should_offer(&update.version, manual))
+        .filter(|update| {
+            (manual || prefs.auto_check) && prefs.should_offer(&update.version, manual)
+        })
         .map(|update| AvailableUpdate {
             version: update.version.clone(),
             notes: update.body.clone().unwrap_or_default(),
