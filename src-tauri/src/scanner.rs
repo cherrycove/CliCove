@@ -1113,6 +1113,7 @@ mod tests {
         assert!(npm_package_version(&executable).is_none());
     }
 
+    #[cfg(unix)]
     #[test]
     fn aliases_share_a_canonical_path() {
         let temp = TempDir::new().unwrap();

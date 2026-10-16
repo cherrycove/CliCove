@@ -351,10 +351,32 @@ mod tests {
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().unwrap();
+        #[cfg(windows)]
+        let mut writer = pair.master.take_writer().unwrap();
         let (send, receive) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
-            let mut output = String::new();
-            let result = reader.read_to_string(&mut output).map(|_| output);
+            let result = (|| -> std::io::Result<String> {
+                let mut output = String::new();
+                let mut buffer = [0_u8; 1024];
+                #[cfg(windows)]
+                let mut replies = 0;
+                loop {
+                    let size = reader.read(&mut buffer)?;
+                    if size == 0 {
+                        break;
+                    }
+                    output.push_str(&String::from_utf8_lossy(&buffer[..size]));
+                    // ConPTY inherits the terminal cursor and waits for a DSR reply.
+                    // xterm supplies it in the app; this headless fixture must do so too.
+                    #[cfg(windows)]
+                    while replies < output.matches("\x1b[6n").count() {
+                        writer.write_all(b"\x1b[1;1R")?;
+                        writer.flush()?;
+                        replies += 1;
+                    }
+                }
+                Ok(output)
+            })();
             let _ = send.send(result);
         });
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
