@@ -13,13 +13,14 @@ use uuid::Uuid;
 
 struct TerminalHandle {
     session: Arc<Mutex<TerminalSession>>,
-    master: Mutex<Box<dyn MasterPty + Send>>,
+    master: Mutex<Option<Box<dyn MasterPty + Send>>>,
     writer: Mutex<Box<dyn Write + Send>>,
     child: Arc<Mutex<Box<dyn Child + Send + Sync>>>,
     ended: Arc<AtomicBool>,
 }
 
 pub struct TerminalManager {
+    spawn_gate: Mutex<()>,
     sessions: Mutex<HashMap<String, Arc<TerminalHandle>>>,
     storage: Arc<Storage>,
 }
@@ -27,6 +28,7 @@ pub struct TerminalManager {
 impl TerminalManager {
     pub fn new(storage: Arc<Storage>) -> Self {
         Self {
+            spawn_gate: Mutex::new(()),
             sessions: Mutex::new(HashMap::new()),
             storage,
         }
@@ -47,6 +49,7 @@ impl TerminalManager {
         login_path: OsString,
         kind: String,
     ) -> Result<TerminalSession, String> {
+        let _gate = self.spawn_gate.lock();
         if !Path::new(&executable).is_file() {
             return Err(format!("可执行文件不存在：{executable}"));
         }
@@ -101,12 +104,14 @@ impl TerminalManager {
         let session_state = Arc::new(Mutex::new(session.clone()));
         let handle = Arc::new(TerminalHandle {
             session: session_state.clone(),
-            master: Mutex::new(pair.master),
+            master: Mutex::new(Some(pair.master)),
             writer: Mutex::new(writer),
             child: child.clone(),
             ended: ended.clone(),
         });
-        self.sessions.lock().insert(session_id.clone(), handle);
+        self.sessions
+            .lock()
+            .insert(session_id.clone(), handle.clone());
 
         let storage = self.storage.clone();
         std::thread::Builder::new()
@@ -150,6 +155,18 @@ impl TerminalManager {
             })
             .map_err(|error| error.to_string())?;
 
+        // ConPTY keeps its output pipe open until the master is closed, even after
+        // cmd.exe exits. Close it while the reader is still draining the pipe.
+        #[cfg(windows)]
+        std::thread::spawn(move || loop {
+            let finished = !matches!(handle.child.lock().try_wait(), Ok(None));
+            if finished {
+                drop(handle.master.lock().take());
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        });
+
         Ok(session)
     }
 
@@ -170,6 +187,8 @@ impl TerminalManager {
         let result = handle
             .master
             .lock()
+            .as_ref()
+            .ok_or_else(|| "终端会话已经结束".to_string())?
             .resize(PtySize {
                 rows: rows.clamp(5, 300),
                 cols: cols.clamp(20, 500),
@@ -228,6 +247,17 @@ impl TerminalManager {
         session.title = title.into();
         self.storage.session_renamed(session_id, title)?;
         Ok(session.clone())
+    }
+
+    pub fn with_idle_for_app_update<T>(
+        &self,
+        install: impl FnOnce() -> Result<T, String>,
+    ) -> Result<T, String> {
+        let _gate = self.spawn_gate.lock();
+        if self.active_count() > 0 {
+            return Err("请先结束正在运行的终端会话，再更新 CliCove。".into());
+        }
+        install()
     }
 
     pub fn active_count(&self) -> usize {
@@ -318,9 +348,30 @@ mod tests {
         let mut child = pair.slave.spawn_command(command).unwrap();
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().unwrap();
-        let mut output = String::new();
-        reader.read_to_string(&mut output).unwrap();
-        assert!(child.wait().unwrap().success());
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut output = String::new();
+            let result = reader.read_to_string(&mut output).map(|_| output);
+            let _ = send.send(result);
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = child.kill();
+                panic!("PTY child did not exit within 15 seconds");
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        };
+        assert!(status.success());
+        #[cfg(windows)]
+        drop(pair.master);
+        let output = receive
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("PTY output reader did not finish after child exit")
+            .unwrap();
         assert!(output.contains("clicove-pty-ok"));
     }
 

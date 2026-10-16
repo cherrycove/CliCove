@@ -34,6 +34,8 @@ beforeEach(() => {
   pending.clear();
   vi.mocked(invoke).mockReset().mockImplementation(async (command) => {
     if (pending.has(command)) return pending.get(command);
+    if (command === 'app_update_status') return { currentVersion: '0.6.12', preferences: { autoCheck: false, skippedVersion: null, lastAttempt: null, lastChecked: null } };
+    if (command === 'check_app_update') return { checked: false, update: null, preferences: { autoCheck: false, skippedVersion: null, lastAttempt: null, lastChecked: null } };
     if (command === 'get_settings') return { defaultWorkingDirectory: '/tmp', showSystemTools: false, showAllExecutables: false, trayEnabled: false };
     if (command === 'scan_tools') return [tool];
     if (command === 'list_resource_catalog') return { providers: [], installations: [], capabilities: [] };
@@ -239,5 +241,23 @@ describe('scan scope changes discover and synchronize inventory', () => {
     expect(scanCalls().at(-1)?.[1]).toEqual({ showSystem: false, showAllExecutables: true });
     retry.resolve([tool, runtimeTool]);
     await waitFor(() => expect(inventoryButton().textContent).toContain('2'));
+  });
+});
+
+
+describe('CliCove update UI', () => {
+  it('opens manual update details and lets the user skip the version', async () => {
+    await startApp();
+    await fireEvent.click(screen.getByRole('button', { name: /设置/ }));
+    const job = defer('check_app_update');
+    await fireEvent.click(screen.getByRole('button', { name: '检查 CliCove 更新' }));
+    job.resolve({ checked: true, update: { version: '0.6.13', notes: '新的应用功能', publishedAt: '2026-10-16T10:00:00Z' }, preferences: { autoCheck: true, skippedVersion: null, lastAttempt: 100, lastChecked: 100 } });
+    expect(await screen.findByRole('dialog', { name: 'CliCove 0.6.13 可用' })).not.toBeNull();
+    expect(screen.getByText('新的应用功能')).not.toBeNull();
+    const save = defer('skip_app_update');
+    await fireEvent.click(screen.getByRole('button', { name: '跳过此版本' }));
+    save.resolve({ autoCheck: true, skippedVersion: '0.6.13', lastAttempt: 100, lastChecked: 100 });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith('skip_app_update', { version: '0.6.13' });
   });
 });

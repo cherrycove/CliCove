@@ -1,0 +1,128 @@
+name: Build release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release version (must match the source, e.g. v0.6.12)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            target: aarch64-apple-darwin
+            bundles: app,dmg
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            bundles: app,dmg
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis,msi
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: release-${{ matrix.target }}
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/prepare-release.mjs verify "$env:RELEASE_TAG"
+        if: runner.os == 'Windows'
+      - name: Check release version
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/prepare-release.mjs verify "$RELEASE_TAG"
+        if: runner.os != 'Windows'
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: node --test scripts/test-release.mjs
+      - run: cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Build signed update packages
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ runner.os == 'macOS' && '-' || '' }}
+        shell: bash
+        run: |
+          if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            echo 'Configure the TAURI_SIGNING_PRIVATE_KEY repository secret before building a release.'
+            exit 1
+          fi
+          npm run tauri build -- --target ${{ matrix.target }} --bundles ${{ matrix.bundles }} --config '{"bundle":{"createUpdaterArtifacts":true}}'
+      - name: Collect release assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: node scripts/prepare-release.mjs collect src-tauri/target/${{ matrix.target }}/release/bundle ${{ matrix.target }} release-assets "${RELEASE_TAG#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: release-assets/*
+          if-no-files-found: error
+
+  draft:
+    name: Prepare complete draft release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release-assets
+          merge-multiple: true
+      - name: Create release notes and update manifest
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          node scripts/prepare-release.mjs verify "$RELEASE_TAG"
+          gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" -f tag_name="$RELEASE_TAG" -f target_commitish="$GITHUB_SHA" --jq .body > release-notes.md
+          node scripts/prepare-release.mjs manifest release-assets "${RELEASE_TAG#v}" "$GITHUB_REPOSITORY" release-notes.md
+      - name: Upload complete draft
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" --json isDraft > release-state.json 2>/dev/null; then
+            node -e "if (!JSON.parse(require('fs').readFileSync('release-state.json')).isDraft) throw new Error('Refusing to overwrite a published release')"
+          else
+            gh release create "$RELEASE_TAG" --draft --target "$GITHUB_SHA" --title "CliCove $RELEASE_TAG" --notes-file release-notes.md
+          fi
+          gh release upload "$RELEASE_TAG" release-assets/* --clobber
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CliCove-release-assets
+          path: release-assets/*

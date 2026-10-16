@@ -17,6 +17,7 @@ Discover installed CLIs, check their status, manage installs and updates, and op
 - **Install and update**: check for new versions, review and confirm operations, and verify the installed version afterward.
 - **Status and diagnostics**: check dependencies, authentication, and common issues, with quick access to login and configuration actions.
 - **Built-in terminal**: run CLIs inside the app and switch between multiple sessions.
+- **App updates**: install a new CliCove version, remind later, or skip a release.
 - **Local workspace**: no CliCove account required. Each CLI continues to manage its own login and credentials.
 
 ## Screenshots

@@ -1,4 +1,5 @@
 mod adapters;
+mod app_updates;
 mod background;
 mod commands;
 mod health;
@@ -25,6 +26,7 @@ use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{Emitter, Manager};
 
 pub struct AppState {
+    app_updater: app_updates::AppUpdater,
     registry: ToolRegistry,
     adapters: RwLock<Vec<AdapterManifest>>,
     custom_adapters: RwLock<Vec<CustomAdapterInfo>>,
@@ -39,6 +41,7 @@ impl AppState {
         let loaded =
             adapters::load_adapters(&adapter_directory, &storage.trusted_adapter_fingerprints());
         Self {
+            app_updater: app_updates::AppUpdater::default(),
             registry: ToolRegistry::new(loaded.adapters.clone()),
             adapters: RwLock::new(loaded.adapters),
             custom_adapters: RwLock::new(loaded.custom_adapters),
@@ -123,6 +126,7 @@ pub(crate) fn set_tray_enabled(app: &tauri::AppHandle, enabled: bool) -> Result<
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let data_dir = app
                 .path()
@@ -157,6 +161,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            app_updates::app_update_status,
+            app_updates::set_app_update_auto_check,
+            app_updates::skip_app_update,
+            app_updates::check_app_update,
+            app_updates::install_app_update,
             commands::scan_tools,
             commands::probe_version,
             health::authentication_statuses,

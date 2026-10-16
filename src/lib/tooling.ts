@@ -1,5 +1,14 @@
 import type { LatestVersionInfo, ToolCategory, ToolRecord } from './types';
 
+export function displayPath(path: string): string {
+  const prefix = '\\\\?\\';
+  if (!path.startsWith(prefix)) return path;
+  const value = path.slice(prefix.length);
+  if (/^[a-z]:\\/i.test(value)) return value;
+  if (value.toUpperCase().startsWith('UNC\\')) return '\\\\' + value.slice(4);
+  return path;
+}
+
 export function filterTools(
   tools: ToolRecord[],
   query: string,
