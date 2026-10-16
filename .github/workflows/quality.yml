@@ -11,6 +11,7 @@ jobs:
       matrix:
         os: [macos-14, windows-latest]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,5 +22,6 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      - run: node --test scripts/test-release.mjs
       - run: cargo test --manifest-path src-tauri/Cargo.toml
 

@@ -86,11 +86,13 @@ button.primary .ui-icon, nav button.active .ui-icon { --icon-accent: #f2cb4b; --
 .category-filter small { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
 .category-filter em { border: 0; background: transparent; color: var(--text-tertiary); font-size: 12px; padding: 0 2px; min-width: 14px; }
 .tool-layout { grid-template-columns: minmax(290px, .82fr) minmax(420px, 1.18fr); gap: 22px; padding: 0 32px 24px; border: 0; }
-.tool-list { background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 0 3px 0 0; }
-.tool-list-head { padding: 2px 11px 12px; min-height: 53px; background: var(--paper); border-color: var(--border); }
+.tool-list { display: flex; flex-direction: column; min-width: 0; overflow: hidden; scrollbar-gutter: auto; background: transparent; border: 0; border-radius: 0; box-shadow: none; padding: 0; }
+.tool-list-head { position: static; flex: none; gap: 12px; margin: 0; padding: 2px 9px 12px; min-height: 53px; background: var(--paper); border-color: var(--border); backdrop-filter: none; }
+.tool-list-head > div { flex: 1; min-width: 0; }
 .tool-list-head span { font-size: 12px; }
-.tool-list-head small { max-width: 310px; font-size: 12px; }
-.tool-list-head > em { background: #e9ecdf; border: 0; border-radius: 3px; font-weight: 550; }
+.tool-list-head small { max-width: 100%; font-size: 12px; }
+.tool-list-head > em { flex: none; background: #e9ecdf; border: 0; border-radius: 3px; font-weight: 550; }
+.tool-list-scroll { flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: 5px 3px 3px 0; }
 .tool-row { grid-template-columns: 40px minmax(0, 1fr) minmax(68px, 112px) 12px; min-height: 78px; padding: 13px 9px; gap: 10px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: transparent; box-shadow: none; }
 .tool-row:hover { background: #eaeddf; border-color: var(--border); }
 .tool-row.selected { background: #e7ebdc; border-color: var(--border); box-shadow: inset 3px 0 var(--brand-blue); }

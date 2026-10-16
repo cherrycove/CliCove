@@ -2,12 +2,15 @@
   import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { api } from './lib/api';
-  import { canQueryLatest, filterTools, indexLatestChecks, resolveToolSelection, splitArguments } from './lib/tooling';
+  import { canQueryLatest, displayPath, filterTools, indexLatestChecks, resolveToolSelection, splitArguments } from './lib/tooling';
   import Icon from './lib/Icon.svelte';
   import BlockLoader from './lib/BlockLoader.svelte';
   import brandMarkUrl from './assets/clicove-mark.svg';
   import ResourceMark from './lib/ResourceMark.svelte';
   import CliStatus from './lib/CliStatus.svelte';
+  import AppUpdateSettings from './lib/AppUpdateSettings.svelte';
+  import AppUpdateDialog from './lib/AppUpdateDialog.svelte';
+  import { appUpdates } from './lib/appUpdates';
   import { sourceLabel } from './lib/health';
   import { focusDialog } from './lib/focusDialog';
   import TerminalPane from './lib/TerminalPane.svelte';
@@ -265,7 +268,8 @@
     ? diagnosticReports.find((report) => report.toolId === selected.id)
     : undefined;
   $: activeSessions = sessions.filter((session) => session.status === 'running');
-  $: hasBlockingOverlay = Boolean(confirmingExit || adapterTrustCandidate || updatePlan);
+  $: appUpdateDialogVisible = $appUpdates.open && !confirmingExit && !adapterTrustCandidate && !updatePlan;
+  $: hasBlockingOverlay = Boolean(confirmingExit || adapterTrustCandidate || updatePlan || appUpdateDialogVisible);
   $: if (hasBlockingOverlay && paletteOpen) {
     paletteOpen = false;
     paletteTrigger = undefined;
@@ -355,6 +359,7 @@
         if (confirmingExit) confirmingExit = false;
         else if (adapterTrustCandidate) adapterTrustCandidate = null;
         else if (updatePlan) void dismissUpdatePlan();
+        else if (appUpdateDialogVisible) appUpdates.later();
       }
       return;
     }
@@ -393,6 +398,7 @@
   }
 
   onMount(() => {
+    const stopAppUpdates = appUpdates.start();
     let unlistenExit: (() => void) | undefined;
     let unlistenTerminalExit: (() => void) | undefined;
     void listen('exit-confirmation-requested', () => {
@@ -417,6 +423,7 @@
     }).then((fn) => (unlistenTerminalExit = fn));
     void initialize();
     return () => {
+      stopAppUpdates();
       unlistenExit?.();
       unlistenTerminalExit?.();
     };
@@ -1005,7 +1012,7 @@
     <div class="sidebar-composition" aria-hidden="true"><i></i><i></i><i></i></div>
     <div class="sidebar-foot">
       <span class="local-shield"><Icon name="shield" size={16} /></span>
-      <div><strong>纯本地模式</strong><small>凭据仍由各 CLI 管理</small></div>
+      <div><strong>本地工作台</strong><small>凭据仍由各 CLI 管理</small></div>
     </div>
   </aside>
 
@@ -1055,22 +1062,24 @@
       </div>
 
       <div class="tool-layout">
-        <section bind:this={toolListElement} class="tool-list" aria-label="CLI 工具列表">
+        <section class="tool-list" aria-label="CLI 工具列表">
           <div class="tool-list-head"><div><span>{category === 'all' ? '本机能力目录' : categoryNames[category]}</span><small>{activeCategoryDescription}</small></div><em>{filtered.length}</em></div>
-          {#if scanning && tools.length === 0}
-            <div class="loading-list" role="status"><BlockLoader size={56} /><strong>正在扫描本机 CLI</strong><p>正在识别命令、安装来源与服务能力…</p></div>
-          {:else if filtered.length === 0}
-            <div class="empty"><b>未找到匹配的能力 CLI</b><span>调整搜索条件，或在设置中启用高级全量视图</span></div>
-          {:else}
-            {#each filtered as tool (tool.id)}
-              <button aria-current={tool.id === selectedId ? 'true' : undefined} class:selected={tool.id === selectedId} class="tool-row" on:click={() => selectTool(tool.id)}>
-                <ResourceMark resource={tool} />
-                <span class="tool-main"><strong>{tool.displayName}</strong><span class="tool-subline"><small>{tool.aliases.join(' · ')}</small><span class="category-tag" data-category={tool.category}><i></i>{categoryShortNames[tool.category]}</span></span></span>
-                <span class="tool-meta"><em class:dependency-error={!runtimeReady(tool)}>{runtimeReady(tool) ? (tool.version?.split(' · ')[0] ?? '未探测') : `缺少 ${missingDependencies(tool).map((item) => item.name).join(', ')}`}</em><small>{sourceLabel(tool.source)}</small></span>
-                <span class="chevron"><Icon name="chevron-right" size={15} /></span>
-              </button>
-            {/each}
-          {/if}
+          <div bind:this={toolListElement} class="tool-list-scroll">
+            {#if scanning && tools.length === 0}
+              <div class="loading-list" role="status"><BlockLoader size={56} /><strong>正在扫描本机 CLI</strong><p>正在识别命令、安装来源与服务能力…</p></div>
+            {:else if filtered.length === 0}
+              <div class="empty"><b>未找到匹配的能力 CLI</b><span>调整搜索条件，或在设置中启用高级全量视图</span></div>
+            {:else}
+              {#each filtered as tool (tool.id)}
+                <button aria-current={tool.id === selectedId ? 'true' : undefined} class:selected={tool.id === selectedId} class="tool-row" on:click={() => selectTool(tool.id)}>
+                  <ResourceMark resource={tool} />
+                  <span class="tool-main"><strong>{tool.displayName}</strong><span class="tool-subline"><small>{tool.aliases.join(' · ')}</small><span class="category-tag" data-category={tool.category}><i></i>{categoryShortNames[tool.category]}</span></span></span>
+                  <span class="tool-meta"><em class:dependency-error={!runtimeReady(tool)}>{runtimeReady(tool) ? (tool.version?.split(' · ')[0] ?? '未探测') : `缺少 ${missingDependencies(tool).map((item) => item.name).join(', ')}`}</em><small>{sourceLabel(tool.source)}</small></span>
+                  <span class="chevron"><Icon name="chevron-right" size={15} /></span>
+                </button>
+              {/each}
+            {/if}
+          </div>
         </section>
 
         <aside class="detail-panel" bind:this={detailPanelElement}>
@@ -1102,7 +1111,7 @@
               <dl class="facts">
                 <div><dt>识别方式</dt><dd>{selected.adapterId ? '专用适配器' : selected.service ? '服务目录' : '命令识别'}</dd></div>
                 {#if selected.runtimeDependencies.length}
-                  <div><dt>运行依赖</dt><dd>{#each selected.runtimeDependencies as dependency}<span class:dependency-error={!dependency.available} class="dependency-item">{dependency.name} · {dependency.executable ?? '未找到'}</span>{/each}</dd></div>
+                  <div><dt>运行依赖</dt><dd>{#each selected.runtimeDependencies as dependency}<span class:dependency-error={!dependency.available} class="dependency-item">{dependency.name} · {dependency.executable ? displayPath(dependency.executable) : '未找到'}</span>{/each}</dd></div>
                 {:else}<div><dt>运行依赖</dt><dd>没有额外运行依赖</dd></div>{/if}
                 {#if selected.relatedCommands.length > selected.aliases.length}
                   <div><dt>包含命令</dt><dd>{selected.relatedCommands.join('、')}</dd></div>
@@ -1166,7 +1175,7 @@
               {#each providerInstallations as installation (installation.id)}
                 <article class="installation-card">
                   <div class="installation-head"><div><strong>{installation.displayName}</strong><code>{installation.command}</code></div><span class="resource-status status-{installation.status}">{installation.status === 'ready' ? '依赖齐全' : '依赖缺失'}</span></div>
-                  <dl><div><dt>来源</dt><dd>{sourceLabel(installation.source)}</dd></div><div><dt>版本</dt><dd>{installation.version ?? '未知'}</dd></div><div class="installation-path"><dt>路径</dt><dd title={installation.executable}>{installation.executable}</dd></div></dl>
+                  <dl><div><dt>来源</dt><dd>{sourceLabel(installation.source)}</dd></div><div><dt>版本</dt><dd>{installation.version ?? '未知'}</dd></div><div class="installation-path"><dt>路径</dt><dd title={displayPath(installation.executable)}>{displayPath(installation.executable)}</dd></div></dl>
                   <div class="capability-list">
                     {#each resourceCatalog.capabilities.filter((capability) => capability.installationId === installation.id) as capability (capability.id)}
                       <span title={capability.description} data-risk={capability.riskLevel}><b>{capability.displayName}</b><small>{{ 'read-only': '只读', controlled: '受控操作', interactive: '交互操作', 'confirmation-required': '需确认' }[capability.riskLevel] ?? 'CLI 操作'}</small></span>
@@ -1264,12 +1273,13 @@
       </section>
     {:else if view === 'settings'}
       <section class="page-card settings-page">
+        <AppUpdateSettings />
         <div class="setting-group"><div><h3><label for="settings-working-directory">默认工作目录</label></h3><p id="settings-working-directory-hint">新终端和管理命令默认在此目录启动。</p></div><input id="settings-working-directory" aria-describedby="settings-working-directory-hint" bind:value={settings.defaultWorkingDirectory} /></div>
         <div class="setting-group setting-toggle"><div><h3><label for="settings-system-tools">高级模式包含系统命令</label></h3><p id="settings-system-tools-hint">仅在全量视图中包含 macOS 或 Windows 自带命令。切换后自动保存并重新发现。</p></div><label class="switch"><input id="settings-system-tools" aria-label="高级模式包含系统命令" aria-describedby="settings-system-tools-hint" role="switch" type="checkbox" disabled={!settingsReady || savingSettings} checked={settings.showSystemTools} on:change={(event) => changeScanScope('showSystemTools', event.currentTarget.checked)} /><span aria-hidden="true"></span></label></div>
         <div class="setting-group setting-toggle"><div><h3><label for="settings-all-executables">高级：显示全部本机命令</label></h3><p id="settings-all-executables-hint">默认仅显示 Agent 可调用的服务能力 CLI；开启后自动发现语言环境、开发工具、基础设施及 PATH 中的每个可执行入口。</p></div><label class="switch"><input id="settings-all-executables" aria-label="显示全部本机命令" aria-describedby="settings-all-executables-hint" role="switch" type="checkbox" disabled={!settingsReady || savingSettings} checked={settings.showAllExecutables} on:change={(event) => changeScanScope('showAllExecutables', event.currentTarget.checked)} /><span aria-hidden="true"></span></label></div>
         <div class="settings-scan-status" role="status"><span>{#if scanning}<BlockLoader size={20} />正在按当前范围发现 CLI…{:else if scanFailed}发现未完成，清单尚未更新。{:else}已发现 {tools.length} 个本机 CLI · 扫描范围自动保存{/if}</span>{#if scanFailed && !scanning}<button on:click={scan}>重试发现</button>{/if}</div>
         <div class="setting-group setting-toggle"><div><h3><label for="settings-tray">驻留系统托盘</label></h3><p id="settings-tray-hint">关闭时减少后台内存占用。此设置在下次启动后生效。</p></div><label class="switch"><input id="settings-tray" aria-label="驻留系统托盘" aria-describedby="settings-tray-hint" role="switch" type="checkbox" bind:checked={settings.trayEnabled} /><span aria-hidden="true"></span></label></div>
-        <div class="privacy-note"><span><Icon name="shield" size={20} /></span><div><strong>本地与隐私</strong><p>CliCove 仅从内置白名单提取非敏感配置字段；不会持久化终端参数或完整输出，也不会在后台自动联网检查更新。</p></div></div>
+        <div class="privacy-note"><span><Icon name="shield" size={20} /></span><div><strong>本地与隐私</strong><p>CliCove 仅从内置白名单提取非敏感配置字段；不会持久化终端参数或完整输出。</p></div></div>
         <section class="adapter-settings">
           <header><div><h3>自定义适配器信任</h3><p>JSON 文件默认不会加载。信任与文件路径及 SHA-256 内容指纹绑定，文件变化后会自动停用。</p></div><span class="adapter-header-actions"><button disabled={scanning} aria-busy={scanning} on:click={refreshCustomAdapters}>{#if scanning}<BlockLoader />刷新中…{:else}刷新{/if}</button><button on:click={openAdapterDirectory}>打开适配器目录</button></span></header>
           {#if customAdapters.length === 0}
@@ -1392,6 +1402,8 @@
     </div>
   </div>
 {/if}
+
+<AppUpdateDialog visible={appUpdateDialogVisible} activeSessions={activeSessions.length} />
 
 {#if error || notice}
   <div class="toast-region" aria-label="应用通知">

@@ -3,6 +3,7 @@
   import Icon from './Icon.svelte';
   import BlockLoader from './BlockLoader.svelte';
   import { checkAdvice, checkTime, diagnosticView, sourceLabel } from './health';
+  import { displayPath } from './tooling';
   import type { AuthenticationStatus, DiagnosticReport, ToolRecord } from './types';
 
   export let tool: ToolRecord;
@@ -28,6 +29,8 @@
   $: executableCheck = state.checks.find((item) => item.id === 'executable');
   $: versionCheck = state.checks.find((item) => item.id === 'version');
   $: busy = checking || checkingAuth || probing || scanning;
+  $: actualPath = displayPath(tool.canonicalPath);
+  $: entryPath = displayPath(tool.executable);
 
   onMount(() => {
     const timer = setInterval(() => (now = Date.now()), 15_000);
@@ -36,7 +39,7 @@
 
   async function copyPath() {
     try {
-      await navigator.clipboard.writeText(tool.canonicalPath);
+      await navigator.clipboard.writeText(actualPath);
       copyMessage = '路径已复制';
     } catch {
       copyMessage = '复制失败，可选中路径手动复制';
@@ -75,9 +78,9 @@
       <span class="trail-node tone-{executableCheck?.status === 'pass' ? 'success' : executableCheck?.status === 'fail' ? 'danger' : 'muted'}"><Icon name="terminal" size={16} /></span>
       <div class="trail-content">
         <div class="trail-label"><span>实际路径</span><button class="trail-action" aria-label="复制实际路径" on:click={copyPath}><Icon name="copy" size={13} />复制</button></div>
-        <code class="executable-path">{tool.canonicalPath}</code>
+        <code class="executable-path">{actualPath}</code>
         <div class="supporting">命令 <code>{tool.aliases.join(' · ') || tool.name}</code></div>
-        {#if tool.executable !== tool.canonicalPath}<div class="supporting">启动入口 <code class="executable-path">{tool.executable}</code></div>{/if}
+        {#if entryPath !== actualPath}<div class="supporting">启动入口 <code class="executable-path">{entryPath}</code></div>{/if}
         {#if copyMessage}<span class="copy-message" role="status">{copyMessage}</span>{/if}
       </div>
     </li>

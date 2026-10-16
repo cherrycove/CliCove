@@ -19,3 +19,8 @@ src-tauri/gen/schemas/
 *.sqlite
 *.sqlite3
 
+
+# Updater private signing keys
+*.key
+*.key.pub
+release-assets/

@@ -232,6 +232,42 @@ impl Storage {
         })
     }
 
+    pub fn load_update_preferences(&self) -> crate::app_updates::UpdatePreferences {
+        self.connection
+            .lock()
+            .query_row(
+                "SELECT value FROM settings WHERE key='app_updates'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn patch_update_preferences(
+        &self,
+        patch: impl FnOnce(&mut crate::app_updates::UpdatePreferences),
+    ) -> Result<crate::app_updates::UpdatePreferences, String> {
+        let connection = self.connection.lock();
+        let value = connection
+            .query_row(
+                "SELECT value FROM settings WHERE key='app_updates'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()
+            .map_err(|error| error.to_string())?;
+        let mut preferences = match value {
+            Some(json) => serde_json::from_str(&json).map_err(|error| error.to_string())?,
+            None => crate::app_updates::UpdatePreferences::default(),
+        };
+        patch(&mut preferences);
+        connection.execute("INSERT INTO settings(key, value) VALUES('app_updates', ?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            [serde_json::to_string(&preferences).map_err(|error| error.to_string())?]).map_err(|error| error.to_string())?;
+        Ok(preferences)
+    }
+
     pub fn load_settings(&self) -> AppSettings {
         let connection = self.connection.lock();
         let value: Option<String> = connection
@@ -831,6 +867,29 @@ mod tests {
                 },
             ],
         }
+    }
+
+    #[test]
+    fn updater_preferences_persist_without_overwriting_app_settings() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let path = temp.path().join("preferences.db");
+        let storage = Storage::new(&path).unwrap();
+        assert!(storage.load_update_preferences().auto_check);
+        storage
+            .patch_update_preferences(|prefs| {
+                prefs.auto_check = false;
+                prefs.skipped_version = Some("0.6.13".into());
+            })
+            .unwrap();
+        storage
+            .patch_update_preferences(|prefs| prefs.last_checked = Some(100))
+            .unwrap();
+        storage.save_settings(&AppSettings::default()).unwrap();
+        drop(storage);
+        let prefs = Storage::new(&path).unwrap().load_update_preferences();
+        assert!(!prefs.auto_check);
+        assert_eq!(prefs.skipped_version.as_deref(), Some("0.6.13"));
+        assert_eq!(prefs.last_checked, Some(100));
     }
 
     #[test]
