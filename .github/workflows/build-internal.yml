@@ -2,9 +2,15 @@ name: Build internal installers
 
 on:
   workflow_dispatch:
+    inputs:
+      installer_run_id:
+        description: 'Test the Windows installers from an existing build run instead of rebuilding'
+        type: string
+        default: ''
 
 jobs:
   build:
+    if: inputs.installer_run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -43,3 +49,29 @@ jobs:
         with:
           name: CliCove-${{ matrix.artifact }}
           path: src-tauri/target/release/bundle/**/*
+
+  test-existing-windows-installer:
+    if: inputs.installer_run_id != ''
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: CliCove-Windows
+          run-id: ${{ inputs.installer_run_id }}
+          github-token: ${{ github.token }}
+          path: installers
+      - name: Check archive and install with default and isolated temporary directories
+        shell: pwsh
+        run: ./scripts/test-windows-installer.ps1 -ArtifactDirectory installers
+      - name: Install and uninstall as a standard Windows user
+        shell: pwsh
+        run: ./scripts/test-windows-standard-user.ps1 -ArtifactDirectory installers
