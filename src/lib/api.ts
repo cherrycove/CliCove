@@ -3,6 +3,7 @@ import type {
   AppSettings,
   AuthenticationStatus,
   ConfigPreview,
+  CliInformation,
   CustomAdapterInfo,
   InstallCandidate,
   LatestVersionInfo,
@@ -34,6 +35,8 @@ export const api = {
     invoke<CustomAdapterInfo[]>('revoke_custom_adapter', { path, fingerprint }),
   planUpdate: (toolId: string) => invoke<UpdatePlan>('plan_update', { toolId }),
   listInstallCandidates: () => invoke<InstallCandidate[]>('list_install_candidates'),
+  listCliInformation: () => invoke<CliInformation[]>('list_cli_information'),
+  openCliDocumentation: (serviceId: string) => invoke<void>('open_cli_documentation', { serviceId }),
   latestVersionChecks: () => invoke<LatestVersionInfo[]>('latest_version_checks'),
   checkLatestVersion: (toolId: string) =>
     invoke<LatestVersionInfo>('check_latest_version', { toolId }),

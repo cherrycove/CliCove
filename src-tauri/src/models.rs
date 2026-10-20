@@ -47,6 +47,17 @@ pub struct RuntimeDependency {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
+pub struct CliInformation {
+    pub id: String,
+    pub display_name: String,
+    pub description: String,
+    pub introduction: String,
+    pub documentation_url: String,
+    pub category: ToolCategory,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ServiceIdentity {
     pub id: String,
     pub description: String,
@@ -222,6 +233,9 @@ pub struct InstallCandidate {
     pub id: String,
     pub adapter_id: String,
     pub display_name: String,
+    pub description: String,
+    pub introduction: String,
+    pub documentation_url: String,
     pub category: ToolCategory,
     pub package_manager: String,
     pub package_name: String,

@@ -1,6 +1,6 @@
 [package]
 name = "clicove"
-version = "0.6.12"
+version = "0.6.15"
 description = "A lightweight local console for discovering and managing command-line tools"
 authors = ["CliCove"]
 license = "MIT"

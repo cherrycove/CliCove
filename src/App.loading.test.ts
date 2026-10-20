@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { invoke } from '@tauri-apps/api/core';
 import App from './App.svelte';
-import type { LatestVersionInfo, ToolRecord, UpdatePlan } from './lib/types';
+import type { CliInformation, InstallCandidate, LatestVersionInfo, ToolRecord, UpdatePlan } from './lib/types';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => vi.fn()) }));
@@ -19,6 +19,14 @@ const tool: ToolRecord = {
 const runtimeTool: ToolRecord = {
   ...tool, id: 'python', name: 'python', displayName: 'Python', aliases: ['python'],
   category: 'runtime',
+};
+const installCandidate: InstallCandidate = {
+  id: 'vercel', adapterId: 'vercel', displayName: 'Vercel CLI',
+  description: 'Vercel 项目部署、预览环境与托管服务管理。',
+  introduction: '将本地项目部署为预览环境或正式站点。\n\n适合发布前端网站与 Web 应用。',
+  documentationUrl: 'https://vercel.com/docs/cli',
+  category: 'cloud-service', packageManager: 'npm', packageName: 'vercel', source: 'npm',
+  managerAvailable: true, installed: false,
 };
 const pending = new Map<string, Promise<unknown>>();
 
@@ -259,5 +267,133 @@ describe('CliCove update UI', () => {
     save.resolve({ autoCheck: true, skippedVersion: '0.6.13', lastAttempt: 100, lastChecked: 100 });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(vi.mocked(invoke)).toHaveBeenCalledWith('skip_app_update', { version: '0.6.13' });
+  });
+});
+
+describe('scrollbar integration', () => {
+  async function prepareArea(selector: string) {
+    const area = document.querySelector(selector)!;
+    const viewport = area.querySelector<HTMLElement>('.scroll-viewport')!;
+    const rail = area.querySelector<HTMLElement>('.scroll-rail')!;
+    Object.defineProperties(viewport, { clientHeight: { value: 200 }, scrollHeight: { value: 1000 } });
+    Object.defineProperty(rail, 'clientHeight', { value: 200 });
+    await fireEvent.scroll(viewport);
+    return { viewport, thumb: area.querySelector<HTMLElement>('[role="scrollbar"]')! };
+  }
+
+  it('does not reset detail scrolling by re-publishing the bound viewport', async () => {
+    await startApp();
+    const { viewport, thumb } = await prepareArea('.detail-panel');
+    vi.mocked(HTMLElement.prototype.scrollTo).mockClear();
+    await fireEvent.keyDown(thumb, { key: 'End' });
+    expect(viewport.scrollTop).toBe(800);
+    expect(HTMLElement.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('keeps scrollbar keys independent from quick-open selection positioning', async () => {
+    await startApp();
+    await fireEvent.click(screen.getByRole('button', { name: /快速打开/ }));
+    const { viewport, thumb } = await prepareArea('.command-results');
+    vi.mocked(HTMLElement.prototype.scrollIntoView).mockClear();
+    await fireEvent.keyDown(thumb, { key: 'End' });
+    expect(viewport.scrollTop).toBe(800);
+    expect(HTMLElement.prototype.scrollIntoView).not.toHaveBeenCalled();
+    await fireEvent.keyDown(thumb, { key: 'Home' });
+    expect(viewport.scrollTop).toBe(0);
+    await fireEvent.keyDown(screen.getByRole('combobox'), { key: 'ArrowDown' });
+    expect(HTMLElement.prototype.scrollIntoView).toHaveBeenCalled();
+  });
+});
+
+describe('CLI information in the install catalog', () => {
+  it('keeps the same information after a catalog CLI is installed', async () => {
+    const installed = { ...tool, adapterId: undefined, displayName: 'Vercel CLI', service: { id: 'vercel', description: installCandidate.description } };
+    pending.set('scan_tools', Promise.resolve([installed]));
+    pending.set('list_install_candidates', Promise.resolve([{ ...installCandidate, installed: true, installedToolId: tool.id }]));
+    pending.set('list_cli_information', Promise.resolve([installCandidate]));
+    await startApp();
+    await fireEvent.click(screen.getByRole('button', { name: /^安装与更新/ }));
+    const trigger = await screen.findByRole('button', { name: '了解 Vercel CLI' });
+    expect(screen.getAllByText(installCandidate.description)).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: '安装' })).toBeNull();
+    await fireEvent.click(trigger);
+    expect(screen.getByRole('link', { name: /查看官方说明/ }).getAttribute('href')).toBe(installCandidate.documentationUrl);
+    expect(screen.getByRole('dialog', { name: 'Vercel CLI' }).textContent).toContain('将本地项目部署为预览环境或正式站点。');
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => ['plan_install', 'plan_update', 'execute_update'].includes(command))).toBe(false);
+  });
+
+  it('shows information for an installed native CLI without an installation recipe in both views', async () => {
+    const grok: CliInformation = { id: 'grok', displayName: 'Grok CLI', category: 'ai-agent', description: '终端中的编码 Agent。', introduction: '用于理解代码和完成开发任务。', documentationUrl: 'https://docs.x.ai/build/cli/reference' };
+    pending.set('scan_tools', Promise.resolve([{ ...tool, name: 'agent', displayName: 'Grok CLI', adapterId: 'grok' }]));
+    pending.set('list_cli_information', Promise.resolve([grok]));
+    await startApp();
+    const detailTrigger = await screen.findByRole('button', { name: '了解 Grok CLI' });
+    await fireEvent.click(detailTrigger);
+    expect(screen.getByRole('dialog', { name: 'Grok CLI' }).textContent).toContain(grok.introduction);
+    await fireEvent.keyDown(screen.getByRole('button', { name: '关闭' }), { key: 'Escape' });
+    await waitFor(() => expect(document.activeElement).toBe(detailTrigger));
+    await fireEvent.click(screen.getByRole('button', { name: /^安装与更新/ }));
+    expect(screen.getByText(grok.description)).not.toBeNull();
+    await fireEvent.click(screen.getByRole('button', { name: '了解 Grok CLI' }));
+    expect(screen.getByRole('link', { name: /查看官方说明/ }).getAttribute('href')).toBe(grok.documentationUrl);
+  });
+
+  async function openCatalog() {
+    pending.set('list_install_candidates', Promise.resolve([installCandidate]));
+    await startApp();
+    await fireEvent.click(screen.getByRole('button', { name: /^安装与更新/ }));
+    return screen.findByRole('button', { name: '了解 Vercel CLI' });
+  }
+
+  it('shows the purpose and a keyboard-accessible dialog without starting management actions', async () => {
+    const trigger = await openCatalog();
+    expect(screen.getByText(installCandidate.description)).not.toBeNull();
+    await fireEvent.click(trigger);
+    const dialog = screen.getByRole('dialog', { name: 'Vercel CLI' });
+    expect(dialog.textContent).toContain('将本地项目部署为预览环境或正式站点。');
+    expect(dialog.textContent).toContain('适合发布前端网站与 Web 应用。');
+    const link = screen.getByRole('link', { name: /查看官方说明/ });
+    expect(link.getAttribute('href')).toBe(installCandidate.documentationUrl);
+    expect(document.querySelector<HTMLElement>('.app-shell')?.inert).toBe(true);
+    const close = screen.getByRole('button', { name: '关闭' });
+    await waitFor(() => expect(document.activeElement).toBe(close));
+    await fireEvent.keyDown(close, { key: 'Tab' });
+    expect(document.activeElement).toBe(link);
+    await fireEvent.keyDown(link, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(close);
+    await fireEvent.keyDown(close, { key: 'k', metaKey: true });
+    expect(screen.queryByRole('combobox')).toBeNull();
+    await fireEvent.keyDown(close, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(document.querySelector<HTMLElement>('.app-shell')?.inert).toBe(false);
+    expect(vi.mocked(invoke).mock.calls.some(([command]) => ['plan_install', 'execute_update', 'check_install_version', 'open_cli_documentation'].includes(command))).toBe(false);
+  });
+
+  it('opens the catalog URL through the backend and allows retry after an opener failure', async () => {
+    await fireEvent.click(await openCatalog());
+    const opening = defer('open_cli_documentation');
+    await fireEvent.click(screen.getByRole('link', { name: /查看官方说明/ }));
+    expect(invoke).toHaveBeenCalledWith('open_cli_documentation', { serviceId: 'vercel' });
+    const busy = screen.getByRole('link', { name: /正在打开/ });
+    await fireEvent.click(busy);
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'open_cli_documentation')).toHaveLength(1);
+    opening.reject(new Error('浏览器不可用'));
+    expect((await screen.findByRole('alert')).textContent).toContain('浏览器不可用');
+    pending.set('open_cli_documentation', Promise.resolve());
+    await fireEvent.click(screen.getByRole('link', { name: /查看官方说明/ }));
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
+    expect(vi.mocked(invoke).mock.calls.filter(([command]) => command === 'open_cli_documentation')).toHaveLength(2);
+    await fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('keeps information available when the package manager is missing', async () => {
+    pending.set('list_install_candidates', Promise.resolve([{ ...installCandidate, managerAvailable: false }]));
+    await startApp();
+    await fireEvent.click(screen.getByRole('button', { name: /^安装与更新/ }));
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: '安装' }).disabled).toBe(true);
+    await fireEvent.click(await screen.findByRole('button', { name: '了解 Vercel CLI' }));
+    expect(screen.getByRole('dialog', { name: 'Vercel CLI' })).not.toBeNull();
   });
 });

@@ -140,11 +140,17 @@ export interface LatestVersionInfo {
   message: string;
 }
 
-export interface InstallCandidate {
+export interface CliInformation {
   id: string;
-  adapterId: string;
   displayName: string;
+  description: string;
+  introduction: string;
+  documentationUrl: string;
   category: ToolCategory;
+}
+
+export interface InstallCandidate extends CliInformation {
+  adapterId: string;
   packageManager: string;
   packageName: string;
   source: string;

@@ -2142,8 +2142,8 @@ button.ghost.danger:hover:not(:disabled) {
   background: var(--bg-elevated);
 }
 
-.provider-list > header,
-.provider-detail > header {
+.provider-list > .scroll-viewport > .scroll-content > header,
+.provider-detail > .scroll-viewport > .scroll-content > header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -2159,8 +2159,8 @@ button.ghost.danger:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
-.provider-list > header > span,
-.provider-detail > header > span {
+.provider-list > .scroll-viewport > .scroll-content > header > span,
+.provider-detail > .scroll-viewport > .scroll-content > header > span {
   padding: 4px 8px;
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -2169,7 +2169,7 @@ button.ghost.danger:hover:not(:disabled) {
   font-weight: 600;
 }
 
-.provider-list > button {
+.provider-list > .scroll-viewport > .scroll-content > button {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr);
   align-items: center;
@@ -2189,11 +2189,11 @@ button.ghost.danger:hover:not(:disabled) {
     transform var(--transition-fast);
 }
 
-.provider-list > button:hover {
+.provider-list > .scroll-viewport > .scroll-content > button:hover {
   background: var(--surface);
 }
 
-.provider-list > button.active {
+.provider-list > .scroll-viewport > .scroll-content > button.active {
   border-color: var(--accent-border);
   background: var(--accent-subtle);
 }
@@ -2237,7 +2237,7 @@ button.ghost.danger:hover:not(:disabled) {
   padding: 20px;
 }
 
-.provider-detail > header p {
+.provider-detail > .scroll-viewport > .scroll-content > header p {
   margin: 5px 0 0;
   font-size: 12px;
   color: var(--text-secondary);
@@ -3363,7 +3363,7 @@ button.primary:hover:not(:disabled) {
   overflow-y: auto;
 }
 
-.command-results > button {
+.command-results > .scroll-viewport > .scroll-content > button {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) auto;
   align-items: center;
@@ -3376,7 +3376,7 @@ button.primary:hover:not(:disabled) {
   text-align: left;
 }
 
-.command-results > button.active {
+.command-results > .scroll-viewport > .scroll-content > button.active {
   border-color: rgba(48, 90, 232, 0.2);
   background: linear-gradient(90deg, rgba(48, 90, 232, 0.14), rgba(48, 90, 232, 0.04));
 }
@@ -3984,7 +3984,7 @@ main {
   background: #eceee4;
 }
 
-.provider-list > button.active {
+.provider-list > .scroll-viewport > .scroll-content > button.active {
   border-color: rgba(48, 90, 232, 0.4);
   background: linear-gradient(90deg, rgba(48, 90, 232, 0.14), rgba(48, 90, 232, 0.04));
   box-shadow: inset 2px 0 0 var(--accent);

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { canQueryLatest, filterTools, indexLatestChecks, resolveToolSelection, splitArguments } from './tooling';
-import type { LatestVersionInfo, ToolRecord } from './types';
+import { canQueryLatest, cliInformationForTool, filterTools, indexLatestChecks, resolveToolSelection, splitArguments } from './tooling';
+import type { CliInformation, LatestVersionInfo, ToolRecord } from './types';
 
 const tool: ToolRecord = {
   id: '1',
@@ -29,6 +29,15 @@ const tool: ToolRecord = {
 };
 
 describe('tool list helpers', () => {
+  it('resolves CLI information by product identity, including ambiguous aliases', () => {
+    const info: CliInformation = { id: 'grok', displayName: 'Grok CLI', category: 'ai-agent', description: '编码工具', introduction: '用于终端开发任务。', documentationUrl: 'https://docs.x.ai/build/cli/reference' };
+    const catalog = new Map([[info.id, info]]);
+    expect(cliInformationForTool({ ...tool, name: 'agent' }, catalog)).toBe(info);
+    expect(cliInformationForTool({ ...tool, adapterId: undefined, service: { id: 'grok', description: '' } }, catalog)).toBe(info);
+    expect(cliInformationForTool({ ...tool, adapterId: undefined }, catalog)).toBe(info);
+    expect(cliInformationForTool({ ...tool, adapterId: 'custom-cli' }, catalog)).toBeUndefined();
+    expect(cliInformationForTool({ ...tool, isSystem: true }, catalog)).toBeUndefined();
+  });
   it('keeps the current selection when it is still visible', () => {
     expect(resolveToolSelection([{ ...tool, id: 'another' }, tool], tool.id)).toBe(tool.id);
   });

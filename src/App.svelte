@@ -2,14 +2,16 @@
   import { onMount, tick } from 'svelte';
   import { listen } from '@tauri-apps/api/event';
   import { api } from './lib/api';
-  import { canQueryLatest, displayPath, filterTools, indexLatestChecks, resolveToolSelection, splitArguments } from './lib/tooling';
+  import { canQueryLatest, cliInformationForTool, displayPath, filterTools, indexLatestChecks, resolveToolSelection, splitArguments } from './lib/tooling';
   import Icon from './lib/Icon.svelte';
   import BlockLoader from './lib/BlockLoader.svelte';
+  import ScrollArea from './lib/ScrollArea.svelte';
   import brandMarkUrl from './assets/clicove-mark.svg';
   import ResourceMark from './lib/ResourceMark.svelte';
   import CliStatus from './lib/CliStatus.svelte';
   import AppUpdateSettings from './lib/AppUpdateSettings.svelte';
   import AppUpdateDialog from './lib/AppUpdateDialog.svelte';
+  import CliInfoDialog from './lib/CliInfoDialog.svelte';
   import { appUpdates } from './lib/appUpdates';
   import { sourceLabel } from './lib/health';
   import { focusDialog } from './lib/focusDialog';
@@ -18,6 +20,7 @@
     AppSettings,
     AuthenticationStatus,
     ConfigPreview,
+    CliInformation,
     CustomAdapterInfo,
     DiagnosticReport,
     InstallCandidate,
@@ -180,6 +183,9 @@
   let selectedProviderId = '';
   let adapterTrustCandidate: CustomAdapterInfo | null = null;
   let installCandidates: InstallCandidate[] = [];
+  let cliInformation: CliInformation[] = [];
+  let cliInfoCandidate: CliInformation | null = null;
+  let cliInfoTrigger: HTMLElement | null = null;
   let latestChecks: LatestVersionInfo[] = [];
   let updateHistory: UpdateHistoryRecord[] = [];
   let authenticationStatuses: AuthenticationStatus[] = [];
@@ -207,6 +213,8 @@
   let hasBlockingOverlay = false;
 
   $: selected = tools.find((tool) => tool.id === selectedId);
+  $: cliInformationById = new Map(cliInformation.map((information) => [information.id, information]));
+  $: selectedInformation = selected ? cliInformationForTool(selected, cliInformationById) : undefined;
   $: if (selectedId) void tick().then(() => detailPanelElement?.scrollTo({ top: 0 }));
   $: filtered = filterTools(tools, query, category);
   $: if (view === 'tools') {
@@ -268,8 +276,8 @@
     ? diagnosticReports.find((report) => report.toolId === selected.id)
     : undefined;
   $: activeSessions = sessions.filter((session) => session.status === 'running');
-  $: appUpdateDialogVisible = $appUpdates.open && !confirmingExit && !adapterTrustCandidate && !updatePlan;
-  $: hasBlockingOverlay = Boolean(confirmingExit || adapterTrustCandidate || updatePlan || appUpdateDialogVisible);
+  $: appUpdateDialogVisible = $appUpdates.open && !confirmingExit && !adapterTrustCandidate && !updatePlan && !cliInfoCandidate;
+  $: hasBlockingOverlay = Boolean(confirmingExit || adapterTrustCandidate || updatePlan || cliInfoCandidate || appUpdateDialogVisible);
   $: if (hasBlockingOverlay && paletteOpen) {
     paletteOpen = false;
     paletteTrigger = undefined;
@@ -344,6 +352,11 @@
     category = next;
   }
 
+  function showCliInfo(candidate: CliInformation, trigger: HTMLElement) {
+    cliInfoTrigger = trigger;
+    cliInfoCandidate = candidate;
+  }
+
   function handleGlobalKeydown(event: KeyboardEvent) {
     const target = event.target as HTMLElement | null;
     const typing = target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '');
@@ -359,6 +372,7 @@
         if (confirmingExit) confirmingExit = false;
         else if (adapterTrustCandidate) adapterTrustCandidate = null;
         else if (updatePlan) void dismissUpdatePlan();
+        else if (cliInfoCandidate) cliInfoCandidate = null;
         else if (appUpdateDialogVisible) appUpdates.later();
       }
       return;
@@ -809,10 +823,11 @@
   }
 
   async function refreshUpdateData() {
-    [installCandidates, latestChecks, updateHistory] = await Promise.all([
+    [installCandidates, latestChecks, updateHistory, cliInformation] = await Promise.all([
       api.listInstallCandidates(),
       api.latestVersionChecks(),
       api.listUpdateHistory(),
+      api.listCliInformation(),
     ]);
   }
 
@@ -1064,7 +1079,7 @@
       <div class="tool-layout">
         <section class="tool-list" aria-label="CLI 工具列表">
           <div class="tool-list-head"><div><span>{category === 'all' ? '本机能力目录' : categoryNames[category]}</span><small>{activeCategoryDescription}</small></div><em>{filtered.length}</em></div>
-          <div bind:this={toolListElement} class="tool-list-scroll">
+          <ScrollArea bind:viewport={toolListElement} class="tool-list-scroll" label="CLI 工具列表">
             {#if scanning && tools.length === 0}
               <div class="loading-list" role="status"><BlockLoader size={56} /><strong>正在扫描本机 CLI</strong><p>正在识别命令、安装来源与服务能力…</p></div>
             {:else if filtered.length === 0}
@@ -1079,19 +1094,20 @@
                 </button>
               {/each}
             {/if}
-          </div>
+          </ScrollArea>
         </section>
 
-        <aside class="detail-panel" bind:this={detailPanelElement}>
+        <ScrollArea tag="aside" class="detail-panel" bind:viewport={detailPanelElement} label="CLI 详情">
           {#if selected}
             <div class="detail-hero" data-category={selected.category}>
               <div class="detail-title">
                 <div class="detail-identity"><ResourceMark resource={selected} size={72} inverse />
-                  <div><span class="detail-eyebrow">{categoryNames[selected.category]}</span><h2>{selected.displayName}</h2><p>{selected.service?.description ?? categoryDescriptions[selected.category]}</p></div>
+                  <div><span class="detail-eyebrow">{categoryNames[selected.category]}</span><h2>{selected.displayName}</h2><p>{selectedInformation?.description ?? selected.service?.description ?? categoryDescriptions[selected.category]}</p></div>
                 </div>
               </div>
             </div>
             <div class="detail-actions">
+              {#if selectedInformation}<button aria-label={`了解 ${selected.displayName}`} aria-haspopup="dialog" on:click={(event) => selectedInformation && showCliInfo(selectedInformation, event.currentTarget)}><Icon name="info" size={15} />了解用途</button>{/if}
               <button class="primary" disabled={!runtimeReady(selected)} on:click={() => launch(selected)}><Icon name="terminal" size={15} />打开终端</button>
               {#if selected.capabilities.update}<button disabled={!runtimeReady(selected) || Boolean(planningTargetId)} aria-busy={planningTargetId === selected.id} on:click={(event) => createUpdatePlan(selected, event.currentTarget)}>{#if planningTargetId === selected.id}<BlockLoader />准备中…{:else}<Icon name="updates" size={15} />更新{/if}</button>{/if}
               {#if selected.capabilities.auth}<button disabled={!runtimeReady(selected)} on:click={() => runAction('auth', selected)}><Icon name="lock" size={15} />登录</button>{/if}
@@ -1148,7 +1164,7 @@
           {:else}
             <div class="empty"><b>选择一个 CLI</b><span>查看版本、来源与可用操作</span></div>
           {/if}
-        </aside>
+        </ScrollArea>
       </div>
     {:else if view === 'resources'}
       <section class="page-card resources-page">
@@ -1159,7 +1175,7 @@
         </div>
 
         <div class="resource-browser">
-          <section class="provider-list">
+          <ScrollArea tag="section" class="provider-list" label="服务列表">
             <header><h2>服务</h2><span>{resourceCatalog.providers.length}</span></header>
             {#each resourceCatalog.providers as provider (provider.id)}
               <button class:active={provider.id === selectedProviderId} on:click={() => (selectedProviderId = provider.id)}>
@@ -1167,9 +1183,9 @@
                 <span><strong>{provider.displayName}</strong><small>{provider.installationCount} 个本机安装</small></span>
               </button>
             {/each}
-          </section>
+          </ScrollArea>
 
-          <section class="provider-detail">
+          <ScrollArea tag="section" class="provider-detail" label="服务详情">
             {#if selectedProvider}
               <header><div><h2>{selectedProvider.displayName}</h2><p>登录与凭据由各 CLI 管理</p></div><span class="provider-category" data-category={selectedProvider.category}>{categoryNames[selectedProvider.category]}</span></header>
               {#each providerInstallations as installation (installation.id)}
@@ -1184,11 +1200,11 @@
                 </article>
               {/each}
             {/if}
-          </section>
+          </ScrollArea>
         </div>
       </section>
     {:else if view === 'updates'}
-      <section class="page-card updates-page">
+      <ScrollArea tag="section" class="page-card updates-page" label="安装与更新">
         <div class="page-intro">
           <span><Icon name="package" size={23} /></span>
           <div><h2>安装与版本管理</h2><p>通过 CLI 官方更新器或原包管理器安装和更新。</p></div>
@@ -1210,10 +1226,18 @@
           {#each updatable as tool}
             {@const check = latestCheckByTarget.get(tool.id)}
             {@const checking = checkingTargets.includes(tool.id)}
+            {@const information = cliInformationForTool(tool, cliInformationById)}
             <div class:checking={checking} class:recent={recentlyCheckedTargets.includes(tool.id)} class="update-row" aria-busy={checking} aria-live="polite">
               <ResourceMark resource={tool} />
               <div class="update-description">
-                <strong>{tool.displayName}</strong>
+                {#if information}
+                  <button class="cli-info-trigger" aria-label={`了解 ${tool.displayName}`} aria-haspopup="dialog" on:click={(event) => showCliInfo(information, event.currentTarget)}>
+                    <strong>{tool.displayName}</strong><span><Icon name="info" size={13} />了解用途</span>
+                  </button>
+                  <p class="cli-purpose">{information.description}</p>
+                {:else}
+                  <strong>{tool.displayName}</strong>
+                {/if}
                 <small>{tool.version ?? tool.source.packageVersion ?? '当前版本未知'} <b>→</b> {check?.latestVersion ?? '尚未查询'} · {check?.source ?? tool.source.label}</small>
                 {#if checking}
                   <em class="check-status status-checking">正在检查官方更新方式与发布源，请稍候…</em>
@@ -1244,7 +1268,14 @@
               {@const checking = checkingTargets.includes(targetId)}
               <div class:checking={checking} class:recent={recentlyCheckedTargets.includes(targetId)} class="update-row" aria-busy={checking} aria-live="polite">
                 <ResourceMark resource={candidate} />
-                <div class="update-description"><strong>{candidate.displayName}</strong><small>{candidate.source} · {check?.latestVersion ? `可安装版本 ${check.latestVersion}` : '可安装版本尚未查询'}</small>{#if !candidate.managerAvailable}<em class="check-status status-error">缺少 {candidate.packageManager}</em>{:else if checking}<em class="check-status status-checking">正在连接 {candidate.source} 查询，请稍候…</em>{:else if check}<em title={check.message} class="check-status status-{check.status}">{checkStatusText(check, recentlyCheckedTargets.includes(targetId))}</em>{:else}<em class="check-status status-idle">尚未查询；点击右侧按钮开始</em>{/if}</div>
+                <div class="update-description">
+                  <button class="cli-info-trigger" aria-label={`了解 ${candidate.displayName}`} aria-haspopup="dialog" on:click={(event) => showCliInfo(candidate, event.currentTarget)}>
+                    <strong>{candidate.displayName}</strong><span><Icon name="info" size={13} />了解用途</span>
+                  </button>
+                  <p class="cli-purpose">{candidate.description}</p>
+                  <small>{candidate.source} · {check?.latestVersion ? `可安装版本 ${check.latestVersion}` : '可安装版本尚未查询'}</small>
+                  {#if !candidate.managerAvailable}<em class="check-status status-error">缺少 {candidate.packageManager}</em>{:else if checking}<em class="check-status status-checking">正在连接 {candidate.source} 查询，请稍候…</em>{:else if check}<em title={check.message} class="check-status status-{check.status}">{checkStatusText(check, recentlyCheckedTargets.includes(targetId))}</em>{:else}<em class="check-status status-idle">尚未查询；点击右侧按钮开始</em>{/if}
+                </div>
                 <div class="update-actions">
                   <button class:querying={checking} class:complete={recentlyCheckedTargets.includes(targetId)} class:unsupported={check?.status === 'unsupported'} class="query-button" aria-busy={checking} title={check?.status === 'unsupported' ? check.message : '只读查询，不会执行安装'} disabled={!canQueryLatest(checking, checkingAll, candidate.managerAvailable)} on:click={() => checkCandidateLatest(candidate)}>
                     {#if checking}<BlockLoader />{:else if recentlyCheckedTargets.includes(targetId)}<span aria-hidden="true">✓</span>{/if}{queryButtonLabel(checking, check, recentlyCheckedTargets.includes(targetId))}
@@ -1270,9 +1301,9 @@
             {/each}
           {/if}
         </section>
-      </section>
+      </ScrollArea>
     {:else if view === 'settings'}
-      <section class="page-card settings-page">
+      <ScrollArea tag="section" class="page-card settings-page" label="设置">
         <AppUpdateSettings />
         <div class="setting-group"><div><h3><label for="settings-working-directory">默认工作目录</label></h3><p id="settings-working-directory-hint">新终端和管理命令默认在此目录启动。</p></div><input id="settings-working-directory" aria-describedby="settings-working-directory-hint" bind:value={settings.defaultWorkingDirectory} /></div>
         <div class="setting-group setting-toggle"><div><h3><label for="settings-system-tools">高级模式包含系统命令</label></h3><p id="settings-system-tools-hint">仅在全量视图中包含 macOS 或 Windows 自带命令。切换后自动保存并重新发现。</p></div><label class="switch"><input id="settings-system-tools" aria-label="高级模式包含系统命令" aria-describedby="settings-system-tools-hint" role="switch" type="checkbox" disabled={!settingsReady || savingSettings} checked={settings.showSystemTools} on:change={(event) => changeScanScope('showSystemTools', event.currentTarget.checked)} /><span aria-hidden="true"></span></label></div>
@@ -1300,7 +1331,7 @@
           {/if}
         </section>
         <div class="settings-actions"><span>工作目录与托盘设置更改后点击保存</span><button class="primary save-settings" disabled={savingSettings || scanning} aria-busy={savingSettings} on:click={saveAppSettings}>{#if savingSettings}<BlockLoader inverse />{/if}{savingSettings ? '保存中…' : '保存设置'}</button></div>
-      </section>
+      </ScrollArea>
     {/if}
 
     <section aria-hidden={view !== 'terminals'} class:workspace-hidden={view !== 'terminals'} class="terminal-workspace">
@@ -1343,7 +1374,7 @@
         <input bind:this={paletteInput} bind:value={paletteQuery} role="combobox" aria-autocomplete="list" aria-expanded="true" aria-controls="command-results" aria-activedescendant={paletteItems[paletteIndex] ? `command-option-${paletteIndex}` : undefined} placeholder="搜索页面、CLI 或动作…" aria-label="搜索命令" />
         <kbd>ESC</kbd>
       </label>
-      <div id="command-results" class="command-results" role="listbox" aria-label="命令结果" bind:this={paletteResults}>
+      <ScrollArea id="command-results" class="command-results" viewportRole="listbox" label="命令结果" bind:viewport={paletteResults}>
         {#if paletteItems.length}
           {#each paletteItems as item, index (item.id)}
             <button
@@ -1366,7 +1397,7 @@
         {:else}
           <div class="command-empty"><Icon name="search" size={22} /><strong>没有匹配结果</strong><small>尝试搜索 CLI 名称、命令或页面</small></div>
         {/if}
-      </div>
+      </ScrollArea>
       <footer><span><kbd>↑</kbd><kbd>↓</kbd> 选择</span><span><kbd>↵</kbd> 打开</span><span><kbd>⌘K</kbd> 关闭</span></footer>
     </div>
   </div>
@@ -1401,6 +1432,8 @@
       <div class="modal-actions"><button data-dialog-initial-focus on:click={dismissUpdatePlan}>取消</button><button class="primary" on:click={confirmUpdate}>确认并执行</button></div>
     </div>
   </div>
+{:else if cliInfoCandidate}
+  <CliInfoDialog candidate={cliInfoCandidate} categoryLabel={categoryNames[cliInfoCandidate.category]} trigger={cliInfoTrigger} onClose={() => (cliInfoCandidate = null)} />
 {/if}
 
 <AppUpdateDialog visible={appUpdateDialogVisible} activeSessions={activeSessions.length} />

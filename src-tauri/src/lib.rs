@@ -179,6 +179,8 @@ pub fn run() {
             commands::trust_custom_adapter,
             commands::revoke_custom_adapter,
             updates::list_install_candidates,
+            service_catalog::list_cli_information,
+            service_catalog::open_cli_documentation,
             updates::latest_version_checks,
             updates::check_latest_version,
             updates::check_install_version,

@@ -28,6 +28,8 @@
 
 ## CLI 目录
 
+「已安装」和可信安装目录均显示内置支持 CLI 的用途；点击名称或“了解用途”可查看详细介绍及官方说明链接，本机 CLI 详情页也提供相同入口。
+
 | 类别 | 工具示例 |
 | --- | --- |
 | AI 与 Agent | Codex、Claude Code、Grok CLI、OpenCode、Trellis |

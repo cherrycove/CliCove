@@ -14,6 +14,9 @@ struct InstallRecipe {
     id: &'static str,
     adapter_id: &'static str,
     display_name: &'static str,
+    description: &'static str,
+    introduction: &'static str,
+    documentation_url: &'static str,
     category: ToolCategory,
     manager: &'static str,
     package: &'static str,
@@ -396,6 +399,9 @@ fn install_candidates(state: &State<'_, AppState>) -> Vec<InstallCandidate> {
                 id: recipe.id.into(),
                 adapter_id: recipe.adapter_id.into(),
                 display_name: recipe.display_name.into(),
+                description: recipe.description.into(),
+                introduction: recipe.introduction.into(),
+                documentation_url: recipe.documentation_url.into(),
                 category: recipe.category.clone(),
                 package_manager: recipe.manager.into(),
                 package_name: recipe.package.into(),
@@ -809,6 +815,9 @@ fn install_recipes() -> Vec<InstallRecipe> {
                     id: &service.id,
                     adapter_id: &service.id,
                     display_name: &service.display_name,
+                    description: &service.description,
+                    introduction: &service.introduction,
+                    documentation_url: &service.documentation_url,
                     category: service.category.clone(),
                     manager,
                     package: &package.name,
@@ -876,6 +885,9 @@ mod tests {
             assert!(safe_package_name(recipe.package).is_ok());
             let service = crate::service_catalog::services().iter()
                 .find(|service| service.id == recipe.id).unwrap();
+            assert_eq!(recipe.description, service.description);
+            assert_eq!(recipe.introduction, service.introduction);
+            assert_eq!(recipe.documentation_url, service.documentation_url);
             let mut tool: ToolRecord = serde_json::from_value(serde_json::json!({
                 "id": "test-installation", "name": service.commands[0],
                 "displayName": service.display_name, "executable": "/test/cli",

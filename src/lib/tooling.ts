@@ -1,4 +1,14 @@
-import type { LatestVersionInfo, ToolCategory, ToolRecord } from './types';
+import type { CliInformation, LatestVersionInfo, ToolCategory, ToolRecord } from './types';
+
+export function cliInformationForTool(
+  tool: ToolRecord,
+  informationById: Map<string, CliInformation>,
+): CliInformation | undefined {
+  if (tool.isSystem) return undefined;
+  // Keep explicit product identities authoritative, including for ambiguous aliases.
+  // Exact command-name fallback is for display only and never grants CLI actions.
+  return informationById.get(tool.service?.id ?? tool.adapterId ?? tool.name);
+}
 
 export function displayPath(path: string): string {
   const prefix = '\\\\?\\';

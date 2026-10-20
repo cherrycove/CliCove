@@ -2,85 +2,249 @@
   {
     "id": "codex", "displayName": "Codex", "category": "ai-agent",
     "description": "OpenAI 编码 Agent，用于代码编写与开发任务。",
+    "introduction": "Codex 是 OpenAI 的编码 Agent，可在终端中理解项目、修改代码并运行开发命令。\n\n适合实现功能、排查错误、编写测试和解释现有代码，也可以融入脚本化开发流程。",
+    "documentationUrl": "https://developers.openai.com/codex/cli/",
     "commands": ["codex"], "standaloneCommands": ["codex"],
     "packages": [{ "source": "npm", "name": "@openai/codex", "install": true }]
   },
   {
     "id": "lark-cli", "displayName": "Lark CLI", "category": "collaboration",
     "description": "飞书 / Lark 协作服务，访问文档、消息和业务数据。",
+    "introduction": "Lark CLI 是飞书 / Lark 的官方命令行工具，可以操作消息、云文档、多维表格、电子表格、日历和任务等协作服务。\n\n适合用脚本或 AI Agent 查询工作信息、整理文档和处理日常协作；可访问的内容取决于登录身份和授权范围。",
+    "documentationUrl": "https://github.com/larksuite/cli",
     "commands": ["lark-cli"], "standaloneCommands": ["lark-cli"], "dependencies": ["node"],
     "packages": [{ "source": "npm", "name": "@larksuite/cli", "install": true }]
   },
   {
     "id": "meegle", "displayName": "Meegle CLI", "category": "collaboration",
     "description": "飞书项目 / Meegle 项目管理与工作项协作。",
+    "introduction": "Meegle CLI 是飞书项目 / Meegle 的命令行工具，用于查询和管理工作项、项目计划、工作流节点及相关协作数据。\n\n适合查看待办、批量处理项目记录，以及把项目管理能力接入脚本和 AI Agent。",
+    "documentationUrl": "https://github.com/larksuite/meegle-cli",
     "commands": ["meegle"], "standaloneCommands": ["meegle"], "dependencies": ["node"],
     "packages": [{ "source": "npm", "name": "@lark-project/meegle", "install": true }]
   },
   {
     "id": "trellis", "displayName": "Trellis", "category": "ai-agent",
     "description": "面向 AI Agent 的开发工作流工具。",
+    "introduction": "Trellis 是面向 AI 编码的工程工作流工具，用于在代码仓库中组织开发规范、任务上下文和项目记录。\n\n适合为不同编码 Agent 提供一致的项目约定，让团队复用开发流程，并保留跨会话的工作上下文。",
+    "documentationUrl": "https://github.com/mindfold-ai/Trellis",
     "commands": ["trellis", "tl"], "standaloneCommands": ["trellis"], "dependencies": ["node"],
     "packages": [{ "source": "npm", "name": "@mindfoldhq/trellis", "install": true }]
   },
   {
     "id": "wrangler", "displayName": "Cloudflare Wrangler", "category": "cloud-service",
     "description": "Cloudflare Workers 开发、部署与云服务管理。",
+    "introduction": "Wrangler 是 Cloudflare Workers 的命令行工具，用于在本地开发、调试并部署运行在 Cloudflare 平台上的应用。\n\n适合发布 Workers 服务、管理应用配置，以及操作与项目相关的存储和其他 Cloudflare 开发者服务。",
+    "documentationUrl": "https://developers.cloudflare.com/workers/wrangler/",
     "commands": ["wrangler"], "standaloneCommands": ["wrangler"], "dependencies": ["node"],
     "packages": [{ "source": "npm", "name": "wrangler", "install": true }]
   },
   {
     "id": "vercel", "displayName": "Vercel CLI", "category": "cloud-service",
     "description": "Vercel 项目部署、预览环境与托管服务管理。",
+    "introduction": "Vercel CLI 是 Vercel 网站与应用托管平台的命令行工具，可将本地项目部署为预览环境或正式站点。\n\n适合发布前端网站与 Web 应用、查看部署日志，以及管理项目的环境变量、域名和部署配置。",
+    "documentationUrl": "https://vercel.com/docs/cli",
     "commands": ["vercel", "vc"], "standaloneCommands": ["vercel"], "dependencies": ["node"],
     "packages": [{ "source": "npm", "name": "vercel", "install": true }]
   },
   {
     "id": "netlify", "displayName": "Netlify CLI", "category": "cloud-service",
     "description": "Netlify 站点部署、本地开发与托管服务管理。",
+    "introduction": "Netlify CLI 是 Netlify 网站托管平台的命令行工具，可部署站点、运行本地构建，并配置持续部署。\n\n适合发布网站，在本机模拟托管环境，调试重定向、环境变量及 Netlify Functions 云函数。",
+    "documentationUrl": "https://docs.netlify.com/api-and-cli-guides/cli-guides/get-started-with-cli/",
     "commands": ["netlify"], "standaloneCommands": ["netlify"], "dependencies": ["node"],
     "packages": [{ "source": "npm", "name": "netlify-cli", "install": true }]
   },
   {
     "id": "firebase", "displayName": "Firebase CLI", "category": "cloud-service",
     "description": "Firebase 应用后端、Hosting、Functions 与本地模拟器管理。",
+    "introduction": "Firebase CLI 用于管理 Google Firebase 应用项目，支持部署 Hosting 网站、Cloud Functions 云函数，以及数据库和文件存储的安全规则。\n\n适合为 Web 或移动应用配置后端服务，并在本地测试应用后再进行部署。",
+    "documentationUrl": "https://firebase.google.com/docs/cli",
     "commands": ["firebase"], "standaloneCommands": ["firebase"], "dependencies": ["node"],
     "packages": [{ "source": "npm", "name": "firebase-tools", "install": true }]
   },
   {
     "id": "volcengine", "displayName": "Volcengine CLI", "category": "cloud-service",
     "description": "火山引擎云资源与服务管理；命令入口为 ve。",
+    "introduction": "Volcengine CLI 是火山引擎的统一命令行入口，命令名为 ve，用于访问云资源和服务能力。\n\n适合查询云资源、调用云服务接口，以及将云端操作接入自动化脚本和 AI Agent。",
+    "documentationUrl": "https://github.com/volcengine/volcengine-cli",
     "commands": ["ve"],
     "packages": [{ "source": "npm", "name": "@volcengine/cli", "install": true }]
   },
   {
     "id": "claude", "displayName": "Claude Code", "category": "ai-agent",
     "description": "Anthropic 编码 Agent，用于代码编写与开发任务。",
+    "introduction": "Claude Code 是 Anthropic 的编码 Agent，可以在终端中理解代码库、编辑文件并执行开发命令。\n\n适合实现功能、修复错误、编写测试，以及结合项目上下文完成日常软件开发任务。",
+    "documentationUrl": "https://code.claude.com/docs/en/overview",
     "commands": ["claude"], "standaloneCommands": ["claude"],
     "packages": [{ "source": "homebrew", "name": "claude-code", "install": true, "cask": true }]
   },
   {
     "id": "opencode", "displayName": "OpenCode", "category": "ai-agent",
     "description": "OpenCode 编码 Agent 与开发会话管理。",
+    "introduction": "OpenCode 是面向终端的开源编码 Agent，可以连接模型服务，在项目中开展交互式开发。\n\n适合阅读和修改代码、调试问题、运行命令，并管理不同开发任务的对话会话。",
+    "documentationUrl": "https://opencode.ai/docs/",
     "commands": ["opencode"], "standaloneCommands": ["opencode"],
     "packages": [{ "source": "homebrew", "name": "opencode", "install": true }]
   },
   {
     "id": "aws", "displayName": "AWS CLI", "category": "cloud-service",
     "description": "Amazon Web Services 云资源与服务管理。",
+    "introduction": "AWS CLI 是 Amazon Web Services 的统一命令行工具，可以通过终端调用 AWS 服务接口、查询和管理云资源。\n\n适合操作 S3 对象存储、EC2 云服务器等服务，并把重复的云端管理任务写成脚本。",
+    "documentationUrl": "https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-welcome.html",
     "commands": ["aws"], "standaloneCommands": ["aws"],
     "packages": [{ "source": "homebrew", "name": "awscli", "install": true }]
   },
   {
     "id": "cloudflared", "displayName": "Cloudflare Tunnel", "category": "cloud-service",
     "description": "Cloudflare Tunnel 连接与服务访问管理。",
+    "introduction": "cloudflared 是 Cloudflare Tunnel 的连接器，用于在本机或服务器与 Cloudflare 网络之间建立隧道。\n\n适合通过 Cloudflare 访问网站、内部服务或开发环境，并配合相应的访问策略管理连接。",
+    "documentationUrl": "https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/",
     "commands": ["cloudflared"], "standaloneCommands": ["cloudflared"],
     "packages": [{ "source": "homebrew", "name": "cloudflared", "install": true }]
   },
   {
     "id": "stripe", "displayName": "Stripe CLI", "category": "cloud-service",
     "description": "Stripe 支付服务 API 调试、事件测试与 Webhook 转发。",
+    "introduction": "Stripe CLI 是 Stripe 在线支付平台的开发工具，用于构建、测试和调试支付集成。\n\n适合调用 Stripe API、查看请求日志、触发测试事件，以及将 Webhook 事件转发到本机服务，验证支付和订阅流程。",
+    "documentationUrl": "https://github.com/stripe/stripe-cli",
     "commands": ["stripe"], "standaloneCommands": ["stripe"],
     "packages": [{ "source": "homebrew", "name": "stripe", "install": true }]
+  },
+  {
+    "id": "grok",
+    "displayName": "Grok CLI",
+    "category": "ai-agent",
+    "description": "Grok 编码 Agent，用于终端中的开发任务与自动化。",
+    "introduction": "Grok CLI 是 Grok Build 的终端入口，可在项目中进行交互式编码，并管理开发会话、模型和工具集成。\n\n适合理解代码、实现功能、排查问题，也可以通过无界面模式接入脚本和自动化流程。",
+    "documentationUrl": "https://docs.x.ai/build/cli/reference"
+  },
+  {
+    "id": "owl",
+    "displayName": "Owl",
+    "category": "observability",
+    "description": "观测云命令行入口，用于查询观测数据与管理平台资源。",
+    "introduction": "Owl 是观测云的命令行工具，可以同步工具目录、查看工具参数，并调用指标、日志、事件、APM、监控器和仪表板等平台能力。\n\n适合在终端中排查问题、编排运维脚本，或让 AI Agent 调用已授权工作空间的观测云能力。",
+    "documentationUrl": "https://docs.guance.com/owl/"
+  },
+  {
+    "id": "aliyun",
+    "displayName": "Aliyun",
+    "category": "cloud-service",
+    "description": "阿里云资源查询、服务调用与自动化管理。",
+    "introduction": "阿里云 CLI 是阿里云的命令行工具，命令入口为 aliyun，用于调用云产品的 OpenAPI 并管理云资源。\n\n适合查询和操作 ECS、RDS 等服务，将批量管理、部署及日常运维任务写成脚本。",
+    "documentationUrl": "https://help.aliyun.com/zh/cli/"
+  },
+  {
+    "id": "az",
+    "displayName": "Azure CLI",
+    "category": "cloud-service",
+    "description": "Microsoft Azure 云资源与订阅管理，命令入口为 az。",
+    "introduction": "Azure CLI 是 Microsoft Azure 的跨平台命令行工具，用于连接 Azure 并执行云资源管理命令。\n\n适合管理资源组、虚拟机、存储和订阅配置，也可以通过脚本自动完成重复的云端管理任务。",
+    "documentationUrl": "https://learn.microsoft.com/en-us/cli/azure/what-is-azure-cli"
+  },
+  {
+    "id": "gcloud",
+    "displayName": "Google Cloud CLI",
+    "category": "cloud-service",
+    "description": "Google Cloud 云资源、应用部署与项目配置管理。",
+    "introduction": "Google Cloud CLI 提供 gcloud 等命令行工具，用于创建和管理 Google Cloud 资源、配置认证并部署应用。\n\n适合管理 Compute Engine 虚拟机、Cloud SQL 数据库和 GKE 集群，并在脚本中执行云端运维任务。",
+    "documentationUrl": "https://cloud.google.com/sdk/gcloud"
+  },
+  {
+    "id": "gh",
+    "displayName": "GitHub CLI",
+    "category": "cloud-service",
+    "description": "在终端中管理 GitHub 仓库、Issue、PR 与工作流。",
+    "introduction": "GitHub CLI 是 GitHub 的官方命令行工具，命令入口为 gh，可在终端中处理仓库、Issue、Pull Request、Release 和 Actions 工作流。\n\n适合创建与查看 PR、检查持续集成结果、管理发布，以及将 GitHub 操作接入开发脚本。",
+    "documentationUrl": "https://cli.github.com/manual/"
+  },
+  {
+    "id": "glab",
+    "displayName": "GitLab CLI",
+    "category": "cloud-service",
+    "description": "在终端中管理 GitLab 项目、Issue、MR 与流水线。",
+    "introduction": "GitLab CLI 的命令入口为 glab，用于从终端访问 GitLab 项目及其协作功能。\n\n适合管理 Issue 和 Merge Request、查看流水线状态、处理发布，并在脚本中调用 GitLab API。",
+    "documentationUrl": "https://docs.gitlab.com/cli/"
+  },
+  {
+    "id": "cursor",
+    "displayName": "Cursor",
+    "category": "ai-agent",
+    "description": "Cursor 编辑器的命令行入口，用于打开项目与文件。",
+    "introduction": "Cursor 是带有 AI 编码能力的代码编辑器；这里的 cursor 命令用于从终端打开文件、目录或工作区。\n\n适合把命令行中的项目切换到 Cursor 编辑和调试；独立的 Cursor Agent 终端工具使用不同的命令入口。",
+    "documentationUrl": "https://cursor.com/docs"
+  },
+  {
+    "id": "kubectl",
+    "displayName": "Kubernetes CLI",
+    "category": "infrastructure",
+    "description": "Kubernetes 集群与应用资源的命令行管理工具。",
+    "introduction": "kubectl 是 Kubernetes 的命令行工具，用于与集群控制面通信、部署应用并管理集群资源。\n\n适合查看 Pod 和服务状态、读取容器日志、更新部署配置，以及执行日常集群排障。",
+    "documentationUrl": "https://kubernetes.io/docs/reference/kubectl/"
+  },
+  {
+    "id": "docker",
+    "displayName": "Docker CLI",
+    "category": "infrastructure",
+    "description": "构建镜像、运行容器，并管理 Docker 资源。",
+    "introduction": "Docker CLI 用于从终端操作 Docker，支持构建和分发镜像、启动容器，以及管理网络、存储卷等资源。\n\n适合搭建本地开发环境、验证容器化应用，并将镜像构建和容器操作接入自动化流程。",
+    "documentationUrl": "https://docs.docker.com/reference/cli/docker/"
+  },
+  {
+    "id": "terraform",
+    "displayName": "Terraform",
+    "category": "infrastructure",
+    "description": "通过配置文件定义、预览和管理基础设施。",
+    "introduction": "Terraform 是基础设施即代码工具，可通过声明式配置描述云资源，并生成执行计划和应用变更。\n\n适合统一维护多种平台上的基础设施配置，跟踪资源状态，并让环境创建和变更流程可复用。",
+    "documentationUrl": "https://developer.hashicorp.com/terraform/cli"
+  },
+  {
+    "id": "helm",
+    "displayName": "Helm",
+    "category": "infrastructure",
+    "description": "Kubernetes 应用包管理，用于安装与升级 Chart。",
+    "introduction": "Helm 是 Kubernetes 的包管理工具，使用 Chart 打包应用所需的资源模板和配置。\n\n适合在集群中安装、升级和回滚应用，管理发布版本，并在不同环境中复用部署配置。",
+    "documentationUrl": "https://helm.sh/docs/helm/"
+  },
+  {
+    "id": "railway",
+    "displayName": "Railway CLI",
+    "category": "cloud-service",
+    "description": "Railway 应用部署、环境变量与运行日志管理。",
+    "introduction": "Railway CLI 用于从终端连接 Railway 项目，将本地代码部署到 Railway 平台并管理应用环境。\n\n适合查看部署与日志、读取项目环境变量，以及在本地或自动化流程中执行应用发布任务。",
+    "documentationUrl": "https://docs.railway.com/cli"
+  },
+  {
+    "id": "fly",
+    "displayName": "Fly.io CLI",
+    "category": "cloud-service",
+    "description": "Fly.io 应用部署、Machines 与运行环境管理。",
+    "introduction": "Fly.io 的命令行工具 flyctl（也可使用 fly）用于部署和管理运行在 Fly.io 上的应用。\n\n适合创建应用、管理 Machines、配置密钥和存储卷，以及查看运行日志和应用状态。",
+    "documentationUrl": "https://docs.fly.io/flyctl"
+  },
+  {
+    "id": "slack",
+    "displayName": "Slack CLI",
+    "category": "collaboration",
+    "description": "Slack 应用开发、测试、部署与项目管理。",
+    "introduction": "Slack CLI 是 Slack 开发工具，用于创建、运行和部署 Slack 应用，并管理开发项目的配置。\n\n适合在本地测试应用、查看开发日志，以及维护面向团队协作的 Slack 自动化与集成。",
+    "documentationUrl": "https://docs.slack.dev/tools/slack-cli/"
+  },
+  {
+    "id": "linear",
+    "displayName": "Linear CLI",
+    "category": "collaboration",
+    "description": "从终端访问 Linear 项目与工作项。",
+    "introduction": "Linear 命令行工具用于将 Linear 的项目与工作项管理接入终端或开发脚本。\n\n不同发行版的命令和能力可能不同，请结合本机工具的帮助信息使用；下方链接提供 Linear 官方平台 API 和集成说明。",
+    "documentationUrl": "https://linear.app/developers"
+  },
+  {
+    "id": "hcloud",
+    "displayName": "Hcloud",
+    "category": "cloud-service",
+    "description": "Hetzner Cloud 云资源查询与自动化管理。",
+    "introduction": "hcloud 是 Hetzner Cloud 的官方命令行工具，用于在终端中访问 Hetzner Cloud 并管理云端资源。\n\n适合查看资源状态、执行日常管理和批量操作，并将云端管理步骤接入脚本与自动化流程。",
+    "documentationUrl": "https://github.com/hetznercloud/cli"
   }
 ]
