@@ -77,3 +77,7 @@ cargo test --manifest-path src-tauri/Cargo.toml
 ## 开源许可
 
 [MIT](LICENSE)
+
+## 社区
+
+支持开放交流与知识分享，欢迎访问 [LINUX DO 社区](https://linux.do/)。
